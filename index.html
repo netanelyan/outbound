@@ -32,7 +32,10 @@
     width: 260px; height: 7px; margin: 12px 0 0 auto; border-radius: 4px; overflow: hidden;
     background: linear-gradient(to right, rgba(0,0,0,.34) 0 83.3%, rgba(255,76,59,.32) 83.3% 100%);
   }
-  #tachfill { height: 100%; width: 0%; background: #eaeaea; transition: background .12s; }
+  /* scaleX, not width: width is a layout property and the needle moves every
+     single frame, so animating it relayouts the cluster sixty times a second */
+  #tachfill { height: 100%; width: 100%; background: #eaeaea; transition: background .12s;
+              transform: scaleX(0); transform-origin: 0 50%; will-change: transform; }
   #tachfill.red { background: #ff4c3b; }
   #meta { margin-top: 9px; font-size: 12px; letter-spacing: 2px; opacity: .8; display: flex; gap: 14px; justify-content: flex-end; }
   #meta .on { color: #ffd166; }
@@ -47,6 +50,10 @@
     position: absolute; right: 30px; bottom: 132px;
     font-size: 84px; font-weight: 300; line-height: 1; opacity: .95;
     transform-origin: 100% 50%;
+    /* the shift flash scales this every frame it runs — give it its own layer so
+       the compositor moves it instead of the main thread re-rastering 84px of
+       shadowed text at a new size on each of those frames */
+    will-change: transform;
   }
   #gear.warn { color: #ff4c3b; }
   #clutchlamp { position: absolute; right: 30px; bottom: 226px; font-size: 12px; letter-spacing: 3px; color: #6fd3ff; opacity: 0; transition: opacity .1s; }
@@ -502,10 +509,44 @@ function disposeChunk(ci) {
 }
 
 // ================= car =================
+// A Ferrari F40: 4.76 m long, 1.98 wide, 1.14 tall over a 2.62 m wheelbase, and
+// almost every one of those numbers is the real car's. The shape is a wedge —
+// flat low nose, cabin shoved right forward, then a long engine deck chopped
+// off square — with the wing standing over the tail.
 const car = new THREE.Group();
 car.rotation.order = 'YXZ';
 const chassis = new THREE.Group();      // holds body roll/pitch from suspension
 car.add(chassis);
+
+// The trim below is thirty-odd little boxes. As separate meshes that is thirty
+// draw calls a frame for something you mostly read as a silhouette, so anything
+// sharing a material gets welded into one buffer first. Positions and normals
+// only: none of these materials carry a map.
+function mergeGeos(list) {
+  let vc = 0, ic = 0;
+  for (const g of list) {
+    vc += g.attributes.position.count;
+    ic += g.index ? g.index.count : g.attributes.position.count;
+  }
+  const pos = new Float32Array(vc * 3), nrm = new Float32Array(vc * 3), idx = new Uint32Array(ic);
+  let vo = 0, io = 0;
+  for (const g of list) {
+    const n = g.attributes.position.count;
+    pos.set(g.attributes.position.array, vo * 3);
+    nrm.set(g.attributes.normal.array, vo * 3);
+    if (g.index) for (let k = 0; k < g.index.count; k++) idx[io++] = g.index.array[k] + vo;
+    else for (let k = 0; k < n; k++) idx[io++] = k + vo;
+    vo += n;
+    g.dispose();
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  out.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+  out.setIndex(new THREE.BufferAttribute(idx, 1));
+  out.computeBoundingSphere();
+  return out;
+}
+
 {
   // Side profile, extruded across the car and bevelled. A stack of boxes never
   // reads as a car however you paint it — the silhouette is the whole game.
@@ -527,105 +568,209 @@ car.add(chassis);
     return g;
   };
 
-  // But a straight extrusion is still a slab: constant width top to bottom, nose
-  // to tail. Real bodywork is pinched at the sills, widest across the arches,
-  // and pulls back in toward the roof, then tapers in plan at both ends. Without
-  // this the wheels sit buried inside the flanks and it reads as a doorstop from
-  // every angle except the one it was drawn in. Both shells get the same
-  // function, so the glass stays proud of the body everywhere.
-  const section = (y, az) => {
-    const waist = 0.76 + 0.24 * smoothstep(0.30, 0.66, y)     // sills in, arches out
-                       - 0.22 * smoothstep(0.86, 1.30, y);    // tumblehome to the roof
-    return waist * (1 - 0.24 * smoothstep(1.45, 2.24, az));   // plan taper, nose and tail
+  // A straight extrusion is still a slab: constant width top to bottom, nose to
+  // tail. Real bodywork is pinched at the sills, widest across the arches, and
+  // pulls back toward the roof — the F40 has more tumblehome than almost
+  // anything, and a roof barely two thirds the width of its hips. In plan the
+  // nose comes to a point while the Kamm tail stays nearly full width, so z is
+  // signed here: negative is forward. Every shell gets the same function, which
+  // is what keeps the glass proud of the body at every height.
+  const section = (y, z) => {
+    const waist = 0.70 + 0.30 * smoothstep(0.26, 0.68, y)     // sills in, arches out
+                       - 0.28 * smoothstep(0.86, 1.14, y);    // tumblehome to the roof
+    return waist * (1 - 0.30 * smoothstep(1.45, 2.42, -z))    // the nose narrows hard
+                 * (1 - 0.08 * smoothstep(1.80, 2.34, z));    // the tail barely tucks
   };
-  const shapeBody = geo => {
-    const p = geo.attributes.position;
-    for (let i = 0; i < p.count; i++) {
-      p.setX(i, p.getX(i) * section(p.getY(i), Math.abs(p.getZ(i))));
+  // ExtrudeGeometry triangulates the two flat side faces as a coarse fan across
+  // the whole profile — eleven triangles for the side of a car. Scaling those
+  // vertices by section() would drag metre-long triangles into whatever shape
+  // their three corners happened to land in, and the flanks come out as facets
+  // that bear no relation to the curve above. So refine first: splitting every
+  // triangle into four shares each new midpoint with the neighbour, which means
+  // no T-junctions and no seams, and three passes take the longest edge down to
+  // something the section curve can actually be sampled on.
+  const refine = (geo, passes) => {
+    let p = geo.attributes.position.array;
+    for (let n = 0; n < passes; n++) {
+      const out = new Float32Array(p.length * 4);
+      let o = 0;
+      const tri = (a, b, c) => { for (const v of [a, b, c]) { out[o++] = v[0]; out[o++] = v[1]; out[o++] = v[2]; } };
+      for (let i = 0; i < p.length; i += 9) {
+        const a = [p[i], p[i + 1], p[i + 2]], b = [p[i + 3], p[i + 4], p[i + 5]], c = [p[i + 6], p[i + 7], p[i + 8]];
+        const mid = (u, v) => [(u[0] + v[0]) / 2, (u[1] + v[1]) / 2, (u[2] + v[2]) / 2];
+        const d = mid(a, b), e = mid(b, c), f = mid(c, a);
+        tri(a, d, f); tri(d, b, e); tri(f, e, c); tri(d, e, f);
+      }
+      p = out;
     }
+    geo.deleteAttribute('uv');
+    geo.deleteAttribute('normal');
+    geo.setAttribute('position', new THREE.BufferAttribute(p, 3));
+    return geo;
+  };
+  const shell = (points, depth, bevel) => {
+    const geo = refine(extrude(points, depth, bevel), bevel ? 3 : 2);
+    const p = geo.attributes.position;
+    for (let i = 0; i < p.count; i++) p.setX(i, p.getX(i) * section(p.getY(i), p.getZ(i)));
     geo.computeVertexNormals();
     return geo;
   };
 
-  const bodyGeo = shapeBody(extrude([
-    [2.06, 0.36], [2.12, 0.54], [2.00, 0.68], [1.32, 0.72], [0.74, 0.76],
-    [0.30, 1.16], [-0.50, 1.24], [-1.18, 1.14], [-1.80, 0.88], [-2.04, 0.72],
-    [-2.10, 0.48], [-2.00, 0.34], [0.00, 0.31],
-  ], 1.76, true));
-  const body = new THREE.Mesh(bodyGeo, new THREE.MeshStandardMaterial({
-    color: 0xe6e6e8, roughness: 0.26, metalness: 0.35, envMapIntensity: 1.1,
-  }));
-
-  // The greenhouse is a second extrusion of just the cabin, slightly WIDER and
-  // slightly TALLER than the body so it stands proud instead of z-fighting
-  // inside it. One continuous dark shell from screen over the roof to the tail;
-  // its lower edge stays buried, leaving a beltline strip along the flanks.
-  const glass = new THREE.Mesh(shapeBody(extrude([
-    [0.34, 1.27], [-0.50, 1.35], [-1.14, 1.25], [-1.62, 0.86],
-    [-0.60, 0.80], [0.60, 0.76],
-  ], 2.0, false)), new THREE.MeshStandardMaterial({
-    color: 0x11151b, roughness: 0.08, metalness: 0.7, envMapIntensity: 1.4,
-  }));
-
-  // Trim depths are set against the bevelled, tapered shell rather than the raw
-  // profile — the bevel pushes the real skin ~0.09 further out and the taper
-  // pulls the ends in, so anything placed on the nominal surface lands wrong.
-  const lit = (c, e, i) => new THREE.MeshStandardMaterial({
-    color: c, emissive: e, emissiveIntensity: i, roughness: 0.35, metalness: 0.1,
+  // Rosso Corsa. Paint is a dielectric with a lacquer over it, not a metal —
+  // faking it with metalness tints the specular red and kills the highlight, so
+  // this is the one place in the file worth a physical material and a clearcoat.
+  const paint = new THREE.MeshPhysicalMaterial({
+    color: 0xcf1622, roughness: 0.36, metalness: 0.0,
+    clearcoat: 1.0, clearcoatRoughness: 0.06, envMapIntensity: 1.3,
   });
-  const dark = new THREE.MeshStandardMaterial({ color: 0x1b1c1f, roughness: 0.65, metalness: 0.2 });
-  const tailGeo = new THREE.BoxGeometry(0.38, 0.10, 0.11);
-  const headGeo = new THREE.BoxGeometry(0.32, 0.09, 0.11);
-  const trim = [];
-  for (const sx of [-1, 1]) {
-    const tl = new THREE.Mesh(tailGeo, lit(0x35090a, 0xff2410, 1.6));
-    tl.position.set(sx * 0.45, 0.66, 2.13);
-    const hl = new THREE.Mesh(headGeo, lit(0x2a2a26, 0xfff0cf, 1.3));
-    hl.position.set(sx * 0.46, 0.56, -2.19);
-    // mirrors: small, but nothing else says "car" so cheaply
-    const stalk = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.05, 0.06), dark);
-    stalk.position.set(sx * 0.99, 0.93, -0.50);
-    const mirror = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.09, 0.20), dark);
-    mirror.position.set(sx * 1.10, 0.95, -0.52);
-    trim.push(tl, hl, stalk, mirror);
-  }
-  // tail bar, front intake and rear diffuser
-  const bar = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.035, 0.07), lit(0x35090a, 0xff2410, 1.1));
-  bar.position.set(0, 0.70, 2.14);
-  const grille = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.16, 0.08), dark);
-  grille.position.set(0, 0.42, -2.16);
-  const diffuser = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.14, 0.30), dark);
-  diffuser.position.set(0, 0.32, 2.00);
-  trim.push(bar, grille, diffuser);
+  const glassMat = new THREE.MeshStandardMaterial({
+    color: 0x0d1014, roughness: 0.07, metalness: 0.65, envMapIntensity: 1.5,
+  });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x18191c, roughness: 0.58, metalness: 0.25 });
+  const chrome = new THREE.MeshStandardMaterial({ color: 0x8a8d92, roughness: 0.28, metalness: 0.9 });
+  const redLamp = new THREE.MeshStandardMaterial({
+    color: 0x3a0709, emissive: 0xff2410, emissiveIntensity: 1.7, roughness: 0.3, metalness: 0.1,
+  });
+  const whiteLamp = new THREE.MeshStandardMaterial({
+    color: 0x2a2a26, emissive: 0xfff0cf, emissiveIntensity: 1.4, roughness: 0.3, metalness: 0.1,
+  });
 
-  const shadow = new THREE.Mesh(new THREE.PlaneGeometry(3.0, 5.4),
+  chassis.add(new THREE.Mesh(shell([
+    [ 2.38, 0.30], [ 2.42, 0.50], [ 2.24, 0.62],   // splitter lip, nose, over the front
+    [ 1.62, 0.76], [ 1.02, 0.82],                  // flat front deck, then the cowl
+    [ 0.34, 1.14], [-0.42, 1.13],                  // screen at 65 degrees, short flat roof
+    [-1.18, 0.99], [-1.98, 0.96], [-2.28, 0.93],   // rear window, then the engine deck
+    [-2.34, 0.56], [-2.24, 0.30],                  // the tail, chopped square
+    [ 0.00, 0.22],                                 // floor
+  ], 1.80, true), paint));
+
+  // The glass is three shells rather than one over the whole cabin: the F40's
+  // roof is body colour, and a single dark greenhouse would paint it out and
+  // turn the car into a generic modern coupe. Each is a thin slab lying in its
+  // own plane. The screen and the engine cover are the body profile pushed 0.11
+  // along their outward normal — 0.09 to clear the bevel (see below) and 0.02 to
+  // stand proud of it; the side windows only need to beat the body in width, so
+  // they stay where they are and get their clearance from the extrusion depth.
+  chassis.add(new THREE.Mesh(mergeGeos([
+    shell([[ 1.067, 0.919], [ 0.387, 1.239], [ 0.307, 1.169], [ 0.987, 0.859]], 2.05, false),
+    shell([[ 0.360, 1.160], [-0.420, 1.150], [-0.560, 0.900], [ 0.460, 0.880]], 2.05, false),
+    shell([[-0.460, 1.228], [-1.220, 1.088], [-1.120, 0.998], [-0.380, 1.138]], 2.05, false),
+  ]), glassMat));
+
+  // Trim is placed against the bevelled, tapered shell rather than the raw
+  // profile. The profile above winds clockwise, which makes the bevel expand it:
+  // the real skin sits about 0.09 outboard of every point listed, and the taper
+  // pulls the ends in on top of that. Anything positioned on the nominal surface
+  // ends up buried inside the car.
+  const bin = new Map();
+  const put = (g, mat) => { if (!bin.has(mat)) bin.set(mat, []); bin.get(mat).push(g); };
+  const box = (w, h, d, x, y, z, mat, rx) => {
+    const g = new THREE.BoxGeometry(w, h, d);
+    if (rx) g.rotateX(rx);
+    g.translate(x, y, z);
+    put(g, mat);
+  };
+  const disc = (r, t, x, y, z, mat) => {
+    const g = new THREE.CylinderGeometry(r, r, t, 14);
+    g.rotateX(Math.PI / 2);
+    g.translate(x, y, z);
+    put(g, mat);
+  };
+
+  // The wing. Nothing else on the car is as recognisable from a quarter mile
+  // away, so it gets the full treatment: blade at a few degrees of attack, end
+  // plates, and two struts standing off the deck.
+  box(1.86, 0.05, 0.42,  0.00, 1.16, 2.00, dark, 0.12);
+  for (const sx of [-1, 1]) {
+    box(0.04, 0.20, 0.46, sx * 0.95, 1.17, 2.00, dark);
+    box(0.07, 0.20, 0.24, sx * 0.50, 1.06, 2.04, dark);
+  }
+
+  // Tail: black panel, two round lamps a side, three pipes, diffuser.
+  box(1.56, 0.34, 0.06, 0, 0.73, 2.42, dark);
+  box(1.24, 0.16, 0.36, 0, 0.17, 2.08, dark);
+  for (const sx of [-1, 1]) {
+    disc(0.085, 0.05, sx * 0.29, 0.73, 2.46, redLamp);
+    disc(0.085, 0.05, sx * 0.51, 0.73, 2.46, redLamp);
+  }
+  for (const ex of [-0.14, 0, 0.14]) disc(0.055, 0.12, ex, 0.42, 2.40, chrome);
+
+  // Louvres over the engine cover, sitting in its plane and a shade proud of it.
+  for (const lz of [0.62, 0.82, 1.02]) box(1.15, 0.03, 0.09, 0, 1.345 - 0.184 * lz, lz, dark, 0.182);
+
+  for (const sx of [-1, 1]) {
+    box(0.10, 0.18, 0.66, sx * 0.99, 0.72,  0.55, dark);   // intercooler scoop
+    box(0.14, 0.04, 0.05, sx * 0.98, 0.86, -0.96, dark);   // mirror stalk
+    box(0.09, 0.11, 0.16, sx * 1.07, 0.90, -0.98, dark);   // mirror
+    // Headlamps popped up. They are hidden on the real car, but hidden lamps at
+    // dusk are just a smooth nose — raised, they are the front end's only detail.
+    box(0.34, 0.14, 0.30, sx * 0.50, 0.85, -1.780, dark);
+    box(0.30, 0.10, 0.05, sx * 0.50, 0.85, -1.945, whiteLamp);
+    box(0.22, 0.12, 0.10, sx * 0.40, 0.41, -2.500, dark);  // outer nose intake
+  }
+  box(0.76, 0.05, 0.30, 0, 0.755, -2.05, dark);            // radiator exit vent
+  box(0.52, 0.14, 0.10, 0, 0.420, -2.500, dark);           // centre nose intake
+  box(1.10, 0.06, 0.40, 0, 0.180, -2.18, dark);            // splitter
+
+  for (const [mat, gs] of bin) chassis.add(new THREE.Mesh(mergeGeos(gs), mat));
+
+  const shadow = new THREE.Mesh(new THREE.PlaneGeometry(2.9, 5.5),
     new THREE.MeshBasicMaterial({
       map: makeBlobTexture(0.62, 0), transparent: true, depthWrite: false, opacity: 0.85,
     }));
   shadow.rotation.x = -Math.PI / 2;
   shadow.position.y = 0.035;
-
-  chassis.add(body, glass, ...trim);
   car.add(shadow);   // stays flat on the ground rather than rolling with the body
 }
 const wheels = [], steerHolders = [];
 {
-  const tyreGeo = new THREE.CylinderGeometry(0.38, 0.38, 0.28, 18);
-  const rimGeo = new THREE.CylinderGeometry(0.255, 0.255, 0.285, 14);
-  const tyreMat = new THREE.MeshStandardMaterial({ color: 0x131315, roughness: 0.92, metalness: 0.0 });
-  const rimMat = new THREE.MeshStandardMaterial({ color: 0x8d9298, roughness: 0.34, metalness: 0.85 });
-  for (const [wx, wz, front] of [[-0.88, 1.45, 1], [0.88, 1.45, 1], [-0.88, -1.45, 0], [0.88, -1.45, 0]]) {
-    const w = new THREE.Group();
-    const tyre = new THREE.Mesh(tyreGeo, tyreMat);
-    const rim = new THREE.Mesh(rimGeo, rimMat);
-    tyre.rotation.z = rim.rotation.z = Math.PI / 2;
-    w.add(tyre, rim);
-    const holder = new THREE.Group();
-    holder.position.set(wx, 0.38, -wz);
-    holder.add(w);
-    chassis.add(holder);
-    wheels.push(w);
-    if (front) steerHolders.push(holder);
+  // Five spokes painted straight into the cylinder's cap UVs. three.js maps each
+  // cap to a centred disc in UV space, so a material array buys us a wheel face
+  // for one 128px texture and not a single extra triangle.
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  g.fillStyle = '#0c0c0e'; g.fillRect(0, 0, 128, 128);
+  g.translate(64, 64);
+  for (let i = 0; i < 5; i++) {
+    g.rotate(Math.PI * 2 / 5);
+    g.fillStyle = '#9aa1a8';
+    g.beginPath();
+    g.moveTo(-9, -12); g.lineTo(9, -12); g.lineTo(16, -56); g.lineTo(-16, -56);
+    g.closePath(); g.fill();
+  }
+  g.fillStyle = '#aeb5bc'; g.beginPath(); g.arc(0, 0, 16, 0, 6.283); g.fill();
+  g.fillStyle = '#e8c53c'; g.beginPath(); g.arc(0, 0, 6, 0, 6.283); g.fill();   // centre cap
+  g.strokeStyle = '#c4cad0'; g.lineWidth = 5;
+  g.beginPath(); g.arc(0, 0, 59, 0, 6.283); g.stroke();                          // rim lip
+  const faceTex = new THREE.CanvasTexture(c);
+  faceTex.colorSpace = THREE.SRGBColorSpace;
+  faceTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+
+  const tyreMat = new THREE.MeshStandardMaterial({ color: 0x111113, roughness: 0.94, metalness: 0.0 });
+  const rimSide = new THREE.MeshStandardMaterial({ color: 0x27282b, roughness: 0.45, metalness: 0.75 });
+  const faceMat = new THREE.MeshStandardMaterial({ map: faceTex, roughness: 0.32, metalness: 0.8 });
+
+  // 245 front, 335 rear: the F40's back tyres are half again as wide as its
+  // fronts, and that mismatch is a good part of why the tail looks like it does.
+  for (const s of [{ r: 0.350, w: 0.30, x: 0.84, z: -1.31, front: 1 },
+                   { r: 0.375, w: 0.42, x: 0.80, z:  1.31, front: 0 }]) {
+    const tyreGeo = new THREE.CylinderGeometry(s.r, s.r, s.w, 18);
+    // 17 inch rims under a low-profile tyre — the barrel is most of the wheel
+    const rimGeo = new THREE.CylinderGeometry(s.r * 0.70, s.r * 0.70, s.w + 0.006, 16);
+    for (const sx of [-1, 1]) {
+      const w = new THREE.Group();
+      const tyre = new THREE.Mesh(tyreGeo, tyreMat);
+      const rim = new THREE.Mesh(rimGeo, [rimSide, faceMat, faceMat]);
+      tyre.rotation.z = rim.rotation.z = Math.PI / 2;
+      w.add(tyre, rim);
+      const holder = new THREE.Group();
+      holder.position.set(sx * s.x, s.r, s.z);
+      holder.add(w);
+      chassis.add(holder);
+      wheels.push(w);
+      if (s.front) steerHolders.push(holder);
+    }
   }
 }
 scene.add(car);
@@ -736,9 +881,20 @@ let clutch = 1;                  // engagement: 1 = pedal up (locked), 0 = pedal
 let clutchTarget = 1;
 let engineOn = true, blown = false;   // blown is terminal — only respawn() clears it
 let seize = 0;                   // seconds the wrecked engine holds the driven axle
-let shiftFlash = 0, grind = 0, starter = 0, shiftCut = 0, noRev = 0;
+let grind = 0, starter = 0, shiftCut = 0, noRev = 0;
 
 function ratio(g) { return g === 0 ? 0 : g < 0 ? REVERSE : RATIOS[g - 1]; }
+
+// The shift flash used to be a transform written from the render loop for a
+// third of a second after every change. Scaling 84px of shadowed text by a
+// fresh fraction each frame makes the browser re-rasterise the glyph and its
+// blur on the main thread every one of those frames — which is precisely when
+// you shift, and precisely where the stutter came from. Handed to the
+// compositor as a one-shot animation it costs nothing per frame.
+const gearFlash = () => el.gear.animate(
+  [{ transform: 'scale(1.42)' }, { transform: 'scale(1)' }],
+  { duration: 320, easing: 'cubic-bezier(.16,1,.3,1)' },
+);
 
 // In manual the clutch pedal must be down for the dogs to mesh. Pulling OUT into
 // neutral is always allowed — that works without a clutch on a real car too.
@@ -750,16 +906,16 @@ function shiftTo(g) {
   // nothing — which beats letting the clutch drag the crank backwards to zero.
   if (g < 0 && vLong > REV_MAX) {
     grind = 0.5; noRev = 0.5;
-    if (gear !== 0) { gear = 0; shiftFlash = 0.2; }
+    if (gear !== 0) { gear = 0; gearFlash(); }
     return;
   }
   if (manual && !keys['shift'] && g !== 0) {
     grind = 0.5;                 // gears refuse to mesh; you end up with nothing
-    if (gear !== 0) { gear = 0; shiftFlash = 0.2; }
+    if (gear !== 0) { gear = 0; gearFlash(); }
     return;
   }
   gear = g;
-  shiftFlash = 0.35;
+  gearFlash();
 }
 
 function engineTorque(r, throttle) {
@@ -1006,7 +1162,7 @@ renderer.setAnimationLoop(() => {
   const steerRate = 5.5 - 2.0 * smoothstep(0, 40, speedAbs);
   steerAngle += (steerIn * maxSteer - steerAngle) * (1 - Math.exp(-dt * steerRate));
 
-  const WB = 2.9;
+  const WB = 2.62;   // matches where the wheels actually are, F40 to the centimetre
   // cornering is capped by the grip actually available — the car stays planted
   // until the handbrake or wheelspin takes that grip away
   const latAvail = gripAcc * (handbrake ? 0.38 : 1) * (1 - 0.45 * Math.min(wheelSpin, 1));
@@ -1108,8 +1264,8 @@ renderer.setAnimationLoop(() => {
     if (skidTimer <= 0) {
       skidTimer = 0.016;
       for (const side of [-1, 1]) {
-        const sx = pos.x + rx * side * 0.88 - fx * 1.45;
-        const sz = pos.z + rz * side * 0.88 - fz * 1.45;
+        const sx = pos.x + rx * side * 0.80 - fx * 1.31;   // under the rear tyres
+        const sz = pos.z + rz * side * 0.80 - fz * 1.31;
         addSkid(sx, groundY, sz, -yaw - Math.atan2(vLat, Math.max(1, Math.abs(vLong))));
       }
     }
@@ -1164,7 +1320,6 @@ renderer.setAnimationLoop(() => {
   }
 
   // ---------- HUD ----------
-  shiftFlash = Math.max(0, shiftFlash - dt);
   // Every write here is a style invalidation whether or not the value changed,
   // and most of these change a few times a minute. Diff first.
   setTxt(el.speed, Math.round(Math.abs(vLong) * 3.6));
@@ -1172,10 +1327,9 @@ renderer.setAnimationLoop(() => {
   setTxt(el.dist, (odo / 1000).toFixed(1) + ' km');
   setTxt(el.gear, gear === -1 ? 'R' : gear === 0 ? 'N' : gear);
   setCls(el.gear, (manual && rpm > 6400 && gear > 0) ? 'warn' : '');
-  setSty(el.gear, 'transform', shiftFlash > 0 ? `scale(${1 + shiftFlash * 0.5})` : 'scale(1)');
   // the dial is scaled to BURST, so the red band above redline is real estate you
   // can actually watch the needle climb into
-  setSty(el.tach, 'width', clamp(rpm / BURST * 100, 0, 100).toFixed(1) + '%');
+  setSty(el.tach, 'transform', 'scaleX(' + clamp(rpm / BURST, 0, 1).toFixed(3) + ')');
   setCls(el.tach, rpm > REDLINE ? 'red' : '');
   setTxt(el.mode, manual ? 'MANUAL' : 'AUTO');
   setCls(el.mode, manual ? 'on' : '');
@@ -1196,7 +1350,7 @@ renderer.setAnimationLoop(() => {
     msg = 'GRIND<small>hold SHIFT to declutch before selecting a gear</small>';
   }
   if (msg !== lastMsg) { el.stall.innerHTML = msg; lastMsg = msg; }
-  el.stall.style.display = msg ? 'block' : 'none';
+  setSty(el.stall, 'display', msg ? 'block' : 'none');
 
   renderer.render(scene, camera);
 });
