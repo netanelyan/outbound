@@ -68,6 +68,8 @@
     will-change: transform;
   }
   #gear.warn { color: #ff4c3b; }
+  /* the D of an automatic is a label, not another digit */
+  #gear b { font-size: 34px; font-weight: 400; opacity: .6; vertical-align: 15px; margin-right: 1px; }
   #clutchlamp { position: absolute; right: 30px; bottom: 226px; font-size: 12px; letter-spacing: 3px; color: #6fd3ff; opacity: 0; transition: opacity .1s; }
   #stall { position: absolute; left: 50%; top: 46%; transform: translateX(-50%); text-align: center; font-size: 22px; letter-spacing: 3px; color: #ff6b5b; display: none; }
   #stall small { display: block; font-size: 12px; letter-spacing: 2px; opacity: .8; margin-top: 8px; color: #fff; }
@@ -211,6 +213,12 @@ function mulberry32(seed) {
 // ================= road spline =================
 const curvature = s =>
   0.0016 * Math.sin(s * 0.0011) + 0.0022 * Math.sin(s * 0.00053 + 2.1) + 0.0012 * Math.sin(s * 0.0021 + 4.2);
+// The road's actual bend. An autobahn keeps a tenth of it — dead straight reads
+// as a treadmill, and a motorway does drift. Everything that asks what shape the
+// road is asks THIS, so the spline, the fork stubs, the solid/dashed rule and
+// the autopilot's corner scan all agree about it.
+let BEND = 1;
+const roadCurve = s => curvature(s) * BEND;
 const elevation = s =>
   7 * Math.sin(s * 0.0021 + 1) + 4 * Math.sin(s * 0.0049 + 2) + 14 * Math.sin(s * 0.0008) + 1.5 * Math.sin(s * 0.011);
 
@@ -255,12 +263,31 @@ function forkBend(s) {
 // How far the road has actually been generated, and whether a junction is what
 // is stopping it.
 let genBlocked = false;
+// Change your mind about a junction. The choice has to be taken early so the
+// world past it can be built while it is still in the fog — but that means you
+// can then steer onto the OTHER branch, which is a stub 230 m long that stops
+// dead, and driving off the end of it is what "the junctions are very bugged"
+// looks like. So the decision is not final: while the junction is still ahead,
+// whichever branch you are actually heading for becomes the real road. Points
+// past it are thrown away, the generator is rewound to the junction, and the
+// chunks built from them go with it.
+function refork(fi, side) {
+  if (forkChoice.get(fi) === side) return;
+  forkChoice.set(fi, side);
+  const cut = Math.floor(forkS(fi) / SEG);
+  if (cut + 1 > pts.length) return;
+  pts.length = cut + 1;
+  const last = pts[cut];
+  gen.x = last.x; gen.z = last.z; gen.heading = last.heading;
+  for (const ci of [...chunks.keys()]) if ((ci + 1) * CHUNK * SEG > forkS(fi)) disposeChunk(ci);
+  pendingChunks = true;
+}
 function ensurePoints(n) {
   while (pts.length <= n) {
     const i = pts.length, s = i * SEG;
     const fi = forkIndexAt(s);
-    if (fi >= 1 && s >= forkS(fi) && !forkChoice.has(fi)) { genBlocked = true; return; }
-    gen.heading += (curvature(s) + forkBend(s)) * SEG;
+    if (fi >= 1 && s >= forkS(fi) && !forkChoice.has(fi) && !TERRAIN[terrainIndex].straight) { genBlocked = true; return; }
+    gen.heading += (roadCurve(s) + forkBend(s)) * SEG;
     gen.x += Math.sin(gen.heading) * SEG;
     gen.z -= Math.cos(gen.heading) * SEG;
     pts.push({ x: gen.x, y: elevation(s), z: gen.z, heading: gen.heading });
@@ -281,7 +308,7 @@ function forkStub(fi, side, len) {
     const s = s0 + d;
     const bend = d <= FORK_RUN
       ? side * FORK_BEND * smoothstep(0, 14, d) * (1 - smoothstep(FORK_RUN - 14, FORK_RUN, d)) : 0;
-    h += (curvature(s) + bend) * SEG;
+    h += (roadCurve(s) + bend) * SEG;
     x += Math.sin(h) * SEG;
     z -= Math.cos(h) * SEG;
     out.push({ x, y: elevation(s), z, heading: h });
@@ -291,13 +318,14 @@ function forkStub(fi, side, len) {
 ensurePoints(4);
 
 function getPose(s) {
-  const f = Math.max(0, s / SEG);
+  const f = Math.max(0, (s > 0 ? s : 0) / SEG);
   let i0 = Math.floor(f), t = f - i0;
   ensurePoints(i0 + 1);
+  if (!(i0 >= 0)) { i0 = 0; t = 0; }              // NaN in, last known pose out
   // Clamped at the end of what exists. Past an undecided junction there is
   // nothing yet, and every caller here would rather have the last real pose than
   // a crash — the choice gets made long before the car arrives.
-  if (i0 + 1 >= pts.length) { i0 = pts.length - 2; t = 1; }
+  if (i0 + 1 >= pts.length) { i0 = Math.max(0, pts.length - 2); t = 1; }
   const a = pts[i0], b = pts[i0 + 1];
   return {
     x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t,
@@ -335,6 +363,9 @@ function lanesAt(s) {
   // Nobody builds a dual carriageway through a wood. One lane each way, which
   // also means no central barrier and nowhere to pass but the far side.
   if (TERRAIN[terrainIndex].forest) { lanes.l = 1; lanes.r = 1; }
+  // A one-way road has no other carriageway at all: every lane the block was
+  // going to give both directions goes to yours, and never fewer than three.
+  if (TERRAIN[terrainIndex].oneWay) { lanes.r = Math.max(3, lanes.l + lanes.r); lanes.l = 0; }
   return lanes;
 }
 // Where the two carriageways are separated by a barrier rather than by paint.
@@ -342,7 +373,7 @@ function lanesAt(s) {
 // have two lanes each way is a road somebody built a central reservation into.
 // On these stretches there is no oncoming traffic to worry about at all, which
 // changes what the driver — human or not — is allowed to do with the fast lane.
-const divided = s => { const L = lanesAt(s); return L.l + L.r > 3.9; };
+const divided = s => { const L = lanesAt(s); return L.l > 0.9 && L.l + L.r > 3.9; };
 
 // signed: negative d is the oncoming carriageway
 const edgeAt = (s, d) => (d < 0 ? lanesAt(s).l : lanesAt(s).r) * LANE_W;
@@ -620,6 +651,7 @@ const TERRAIN = [
   { name: 'OPEN ROAD', blurb: 'MOOR AND HILL', stats: 'the original: heather, gorse<br>drystone country and long views', city: false, forest: false },
   { name: 'FOREST', blurb: 'CLOSE COUNTRY', stats: 'trees right up to the verge<br>dark, tight, and you cannot see past them', city: false, forest: true },
   { name: 'CITY', blurb: 'BUILT UP', stats: 'blocks, kerbs, street lighting<br>and the horizon two streets away', city: true, forest: false },
+  { name: 'AUTOBAHN', blurb: 'ONE WAY · STRAIGHT', stats: 'three to five lanes, all yours<br>nothing coming, nothing to slow for', city: false, forest: false, oneWay: true, straight: true },
 ];
 const GEARBOXES = [
   { name: 'AUTOMATIC', blurb: 'IT CHANGES FOR YOU', stats: 'kickdown when you ask for it<br>and it will not let you stall' },
@@ -749,7 +781,7 @@ const markMat = new THREE.MeshLambertMaterial({
 const centreDashed = s => {
   const q = Math.floor(s / 36) * 36 + 18;
   const crest = elevation(q - 90) - 2 * elevation(q) + elevation(q + 90);   // negative over a brow
-  return Math.abs(curvature(q)) < 0.0026 && crest > -1.0;
+  return Math.abs(roadCurve(q)) < 0.0026 && crest > -1.0;
 };
 
 // A tiling mottle for the open ground. Vertex colours alone leave the terrain
@@ -912,8 +944,13 @@ const BUSHES = 640;
 // below it. Anything placed by formula therefore floats or sinks; this
 // interpolates the same four vertices the triangle is actually made of.
 function groundAt(s, side, dist) {
-  const kf = Math.max(0, s / SEG), k0 = Math.floor(kf), tk = kf - k0;
+  const kf = Math.max(0, (s > 0 ? s : 0) / SEG);
+  let k0 = Math.floor(kf), tk = kf - k0;
   ensurePoints(k0 + 2);
+  // Same clamp as getPose: past an undecided junction, or straight after a
+  // re-fork has thrown the points away, there is nothing out here to sample.
+  if (!(k0 >= 0)) { k0 = 0; tk = 0; }
+  if (k0 + 1 >= pts.length) { k0 = Math.max(0, pts.length - 2); tk = 1; }
   const beyond = Math.max(0, dist - edgeAt(s, side));
   let j = 0;
   while (j < OFFS.length - 2 && OFFS[j + 1] < beyond) j++;
@@ -1018,9 +1055,10 @@ function buildChunk(ci) {
     // The divider between the two directions: solid where you cannot see past,
     // and on a divided road it becomes an edge line either side of the barrier
     // instead, because that is what the paint is for once there is concrete.
-    runs(k => !divided(sAt(k)) && centreDashed(sAt(k)), () => 0, 0.09, MK.dash, MK.dash2);
-    runs(k => !divided(sAt(k)) && !centreDashed(sAt(k)), () => -0.09, 0.075, MK.solid, MK.solid2);
-    runs(k => !divided(sAt(k)) && !centreDashed(sAt(k)), () => 0.09, 0.075, MK.solid, MK.solid2);
+    const twoWay = k => nL(k) > 0.05;
+    runs(k => twoWay(k) && !divided(sAt(k)) && centreDashed(sAt(k)), () => 0, 0.09, MK.dash, MK.dash2);
+    runs(k => twoWay(k) && !divided(sAt(k)) && !centreDashed(sAt(k)), () => -0.09, 0.075, MK.solid, MK.solid2);
+    runs(k => twoWay(k) && !divided(sAt(k)) && !centreDashed(sAt(k)), () => 0.09, 0.075, MK.solid, MK.solid2);
     runs(k => divided(sAt(k)), () => 0.62, 0.08, MK.solid, MK.solid2);
     runs(k => divided(sAt(k)), () => -0.62, 0.08, MK.solid, MK.solid2);
     // Which way each lane goes, painted on it. Oncoming lanes sample the same
@@ -2146,8 +2184,26 @@ function applyConditions(i) {
 // Terrain changes what the world is made of, so every chunk has to go. The car
 // stays where it is: the spline is the same road either way.
 function applyTerrain(i) {
+  const wantBend = TERRAIN[i].straight ? 0.10 : 1;
+  const reshape = wantBend !== BEND;
   terrainIndex = i;
+  BEND = wantBend;
+  forkSaid = 0;
   RELIEF = TERRAIN[i].city ? 0.22 : 1;
+  if (reshape) {
+    // The spline is a different SHAPE now, and points are generated once and
+    // kept — so the whole thing has to be built again from the start and the car
+    // put back on it. Distance travelled survives; the road under it does not.
+    pts.length = 0;
+    gen.x = 0; gen.z = 0; gen.heading = 0;
+    // Junctions behind us are settled arbitrarily, or generation would stop at
+    // the first one and never reach the car.
+    forkChoice.clear();
+    for (let f = 1; f <= forkIndexAt(sEst + 1200); f++) forkChoice.set(f, Math.random() < 0.5 ? -1 : 1);
+    ensurePoints(8);
+    onRoadAt(sEst);
+    vLat = 0; yawRate = 0; vy = 0;
+  }
   for (const ci of [...chunks.keys()]) disposeChunk(ci);
   lastChunk = -9999;
   applyConditions(condIndex);      // fog and lighting depend on the terrain too
@@ -2300,7 +2356,7 @@ const trafficMeshes = [];
 // always arrive from ahead; same-direction cars come from whichever end they
 // will reach you from, which depends on whether they are quicker than you.
 function placeTrafficCar(t, first) {
-  t.dir = Math.random() < 0.46 ? -1 : 1;
+  t.dir = (TERRAIN[terrainIndex].oneWay || Math.random() >= 0.46) ? 1 : -1;
   // Oncoming cars come in from much further out than anything else. At 200 m
   // and a 60 m/s closing speed one of them simply materialises three seconds in
   // front of you, which you would see, and which makes any overtake longer than
@@ -2752,7 +2808,7 @@ function onRoadAt(s) {
 }
 function respawn() {
   onRoadAt(sEst);
-  vLong = Math.min(vLong, 12); vLat = 0; yawRate = 0; vy = 0;
+  vLong = clamp(vLong, -12, 12); vLat = 0; yawRate = 0; vy = 0;   // clamp, not min: a huge NEGATIVE speed survived a min()
   engineOn = true; blown = false; seize = 0;      // the only way to undo a money shift
   omegaE = Math.max(omegaE, IDLE * RPM2RAD);
   if (gear === 0 && !manual) gear = 1;
@@ -2828,6 +2884,7 @@ const el = {
 // touches the DOM not at all. Same trick the #stall overlay already used.
 const setTxt = (e, v) => { if (e._t !== v) { e._t = v; e.textContent = v; } };
 const setCls = (e, v) => { if (e._c !== v) { e._c = v; e.className = v; } };
+const setHtml = (e, v) => { if (e._h !== v) { e._h = v; e.innerHTML = v; } };
 const setSty = (e, k, v) => { const j = k + v; if (e['_s' + k] !== j) { e['_s' + k] = j; e.style[k] = v; } };
 
 let lastMsg = '';
@@ -3002,7 +3059,7 @@ function autopilot(dt) {
   const brake = 7.2 * CONDITION_GRIP;
   let openRoad = CRUISE;
   for (let d = 10; d < 280; d += 10) {
-    const k = Math.abs(curvature(sEst + d));
+    const k = Math.abs(roadCurve(sEst + d));
     if (k < 2e-5) continue;
     const vCorner = Math.sqrt(latMax / k);
     openRoad = Math.min(openRoad, Math.sqrt(vCorner * vCorner + 2 * brake * d));
@@ -3073,7 +3130,11 @@ function autopilot(dt) {
   // a metre either way and the margin has to already be there when it wanders.
   // 45 cm still leaves it inside its own lane rather than out near the verge,
   // which the old 90 cm of accumulated bias and tracking error did not.
-  const margin = (!passing && autoLane === 0 && !split) ? 0.45 : 0;
+  // Only where there is an oncoming carriageway to keep away from. It also
+  // corrects a real leftward bias in the controller: measured over four seeds,
+  // the car sits 0.47 m left of the lane centre with no margin and 0.16 m with
+  // this one, so it is doing two jobs and both want it kept.
+  const margin = (!passing && autoLane === 0 && !split && lanesAt(sEst).l > 0.05) ? 0.45 : 0;
   const lat = passing ? -LANE_W * 0.5 : (autoLane + 0.5) * LANE_W + margin;
   const look = clamp(9 + v * 0.62, 11, 46);
   const p = getPose(sEst + look);
@@ -3133,7 +3194,8 @@ const clock = new THREE.Clock();
 let odo = 0, autoShiftLock = 0, lastChunk = -9999, pendingChunks = false;
 // The road has no end, so the only thing that can tell you how far you have come
 // is how far you have come. A running trip and a marker every ten kilometres.
-let tripTime = 0, milestone = 0, toastFor = 0, forkToast = 0, forkTook = "", forkWarn = 0;
+let tripTime = 0, milestone = 0, toastFor = 0, forkToast = 0, forkTook = "", forkWarn = 0, forkSaid = 0;
+let forkHeld = 0, forkFlips = 0;
 const hhmm = t => (t >= 3600 ? Math.floor(t / 3600) + 'h ' : '') + Math.floor(t / 60) % 60 + 'm';
 
 // Adaptive resolution. Fill rate is the one cost here that scales with a screen
@@ -3380,7 +3442,13 @@ renderer.setAnimationLoop(() => {
   // winding up into a spin — and it costs one addition. In grip it costs
   // nothing, because the tyres never let the body slip more than a degree.
   const slipAngle = Math.atan2(vLat, Math.max(2, speedAbs));
-  let yawTarget = clamp((vLong / CAR_WB) * Math.tan(steerAngle + slipAngle), -yawGripMax, yawGripMax);
+  // The argument is clamped short of a right angle. steerAngle can be 0.75 rad
+  // and slipAngle approaches pi/2 when the car is properly sideways, and their
+  // sum then crosses pi/2 — where tan changes SIGN. The car would steer into the
+  // slide instead of out of it, which with the rotation pair below is a pump:
+  // measured, vLat reached 7.8e301 before everything became NaN.
+  const steerEff = clamp(steerAngle + slipAngle, -1.25, 1.25);
+  let yawTarget = clamp((vLong / CAR_WB) * Math.tan(steerEff), -yawGripMax, yawGripMax);
   if (airborne) yawTarget = yawRate;
   yawRate += (yawTarget - yawRate) * (1 - Math.exp(-dt * (airborne ? 0.5 : handbrake ? 11 : 9.5)));
   // and it weathervanes its nose toward the direction of travel on top of that
@@ -3400,6 +3468,11 @@ renderer.setAnimationLoop(() => {
   const kill = clamp(-vLat / Math.max(dt, 1e-3), -latAvail, latAvail);
   vLat += kill * dt;
   vLat *= Math.exp(-dt * (handbrake ? 0.3 : 0.6));
+  // Belt and braces. The rotation pair above is an explicit integration and
+  // grows a fraction of a percent each step; nothing here is ever legitimately
+  // outside these, and a runaway should cost you a bad moment, not the session.
+  vLong = clamp(vLong, -90, 130);
+  vLat = clamp(vLat, -70, 70);
   slipAmount = clamp((Math.abs(vLat) - 1.2) / 5, 0, 1);
 
   // ---------- integrate world position ----------
@@ -3429,28 +3502,68 @@ renderer.setAnimationLoop(() => {
   {
     const fi = forkIndexAt(sEst) + 1;
     const toGo = forkS(fi) - sEst;
+    const side = dEst < 0 ? -1 : 1;
     if (fi >= 1 && toGo < FORK_COMMIT && toGo > -900 && !forkChoice.has(fi)) {
-      forkChoice.set(fi, dEst < 0 ? -1 : 1);
+      forkChoice.set(fi, side);
       pendingChunks = true;
-      forkToast = 2.6;
-      forkTook = dEst < 0 ? 'LEFT' : 'RIGHT';
+      forkHeld = 0;
+    } else if (fi >= 1 && forkChoice.has(fi) && toGo > 70 && toGo < FORK_COMMIT) {
+      // Held for half a second before acting on it, and only so many times, so
+      // that drifting across the line does not rebuild the world every frame.
+      forkHeld = side === forkChoice.get(fi) ? 0 : forkHeld + dt;
+      if (forkHeld > 0.5 && forkFlips < 4) { refork(fi, side); forkFlips++; forkHeld = 0; }
+    }
+    if (forkIndexAt(sEst) >= fi) forkFlips = 0;
+
+    // Safety net: the road stops generating at an undecided junction, so if we
+    // are ever close to where it stops, decide now rather than let anybody
+    // arrive at the end of the world.
+    if (genBlocked) {
+      const endS = (pts.length - 1) * SEG;
+      if (endS - sEst < 420) {
+        const f = forkIndexAt(endS);
+        if (f >= 1 && !forkChoice.has(f)) { forkChoice.set(f, side); pendingChunks = true; }
+      }
+    }
+    // Announced as you actually pass the junction. The decision is taken 620 m
+    // earlier so the world past it can be built while it is still in the fog,
+    // and saying "took the left" then means saying it to somebody who cannot yet
+    // see a junction at all.
+    const passed = forkIndexAt(sEst);
+    if (passed >= 1 && passed !== forkSaid && forkChoice.has(passed)) {
+      forkSaid = passed;
+      forkToast = 2.4;
+      forkTook = forkChoice.get(passed) < 0 ? 'LEFT' : 'RIGHT';
     }
     // and a word about it while you still have time to move across
-    forkWarn = (fi >= 1 && !forkChoice.has(fi) && toGo < 1250 && toGo > 0) ? toGo : 0;
+    forkWarn = (fi >= 1 && !TERRAIN[terrainIndex].straight && !forkChoice.has(fi)
+                && toGo < 1250 && toGo > 0) ? toGo : 0;
   }
 
   // ---------- the central barrier ----------
   // Concrete does not care how fast you were going. Held as a lateral limit
   // rather than as a solid in the list, because it is a continuous wall and the
   // circle test the boulders use would need one every couple of metres.
-  if (divided(sEst) && dEst < 0.62) {
-    pos.x += rx * (0.62 - dEst); pos.z += rz * (0.62 - dEst);
+  // 1.35, not 0.62: the barrier is 0.8 m wide and the car is about 2 m, so
+  // clearing the car's CENTRE by 0.62 m left a third of a metre of bodywork
+  // inside the concrete — which is exactly what clipping into it looks like.
+  // Signed, so being knocked onto the far side pushes you off that side rather
+  // than teleporting you back across.
+  // Always back onto YOUR side. Pushing to whichever side you were nearest was
+  // symmetric and wrong: cross the barrier through a gap where the divided
+  // stretch tapers out, and it would then hold you on the oncoming carriageway.
+  // Bounded on BOTH sides. "Anything left of 1.35 m" includes being a very long
+  // way left of it, and the push is (1.35 - dEst) — so one bad frame elsewhere
+  // became a teleport of the same magnitude and the car was gone for good.
+  if (divided(sEst) && dEst < 1.35 && dEst > -7) {
+    const bside = 1, want = 1.35;
+    pos.x += rx * (want - dEst); pos.z += rz * (want - dEst);
     // Scrub proportionally to how hard you are leaning on it, not by a fixed
     // fraction per frame. A flat multiplier fires again every frame you stay in
     // contact, so holding the wall brought the car to a complete stop with the
     // throttle wide open — a barrier scrapes, it does not anchor you.
-    const into = Math.max(0, -vLat);
-    vLat = Math.max(vLat, 0);
+    const into = Math.max(0, -vLat * bside);
+    vLat = bside > 0 ? Math.max(vLat, 0) : Math.min(vLat, 0);
     vLong -= Math.sign(vLong) * Math.min(Math.abs(vLong), into * 0.5 + 1.5 * dt);
     camShake = Math.min(1, camShake + into * 0.06);
   }
@@ -3701,8 +3814,8 @@ renderer.setAnimationLoop(() => {
   } else setSty(el.toast, 'opacity', toastFor > 0 ? '0.9' : '0');
   // An automatic is in D and then a gear within it, which is what the selector
   // on the console actually says; a manual is just the gear.
-  setTxt(el.gear, gear === -1 ? 'R' : gear === 0 ? 'N'
-               : IS_EV ? 'D' : manual ? String(gear) : 'D' + gear);
+  setHtml(el.gear, gear === -1 ? 'R' : gear === 0 ? 'N'
+                : IS_EV ? 'D' : manual ? String(gear) : '<b>D</b>' + gear);
   setCls(el.gear, (manual && rpm > REDLINE * 0.92 && gear > 0) ? 'warn' : '');
   // the dial is scaled to BURST, so the red band above redline is real estate you
   // can actually watch the needle climb into
