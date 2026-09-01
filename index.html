@@ -742,8 +742,16 @@ function disposeChunk(ci) {
 // off square — with the wing standing over the tail.
 const car = new THREE.Group();
 car.rotation.order = 'YXZ';
-const chassis = new THREE.Group();      // holds body roll/pitch from suspension
-car.add(chassis);
+// Two containers, and which one a part belongs to is the difference between a
+// car that leans and a car that pole-vaults. `car` follows the ground: pitch and
+// roll from the slope under the wheels, and everything rides it. `chassis` adds
+// the body's own lean on its springs under braking and cornering — that is the
+// SPRUNG mass, so only bodywork goes in it. Wheels are unsprung: they stay on
+// the road while the body moves above them, which is the entire point of a
+// suspension, so they live in `axles` and see the ground rotation only.
+const chassis = new THREE.Group();
+const axles = new THREE.Group();
+car.add(chassis, axles);
 
 // The trim below is thirty-odd little boxes. As separate meshes that is thirty
 // draw calls a frame for something you mostly read as a silhouette, so anything
@@ -873,7 +881,8 @@ const wheels = [], steerHolders = [];
 // roof, and tapered in plan at the ends. Passing the SAME curve through the
 // glass is what keeps it proud of the body at every height.
 function buildCar(spec) {
-  const group = new THREE.Group();
+  const group = new THREE.Group();      // sprung: bodywork, leans on the springs
+  const rolling = new THREE.Group();    // unsprung: wheels, stay on the road
   const shell = (points, depth, bevel) => {
     const geo = refine(extrude(points, depth, bevel), bevel ? 3 : 2);
     const p = geo.attributes.position;
@@ -934,12 +943,12 @@ function buildCar(spec) {
       const holder = new THREE.Group();
       holder.position.set(sx * s.x, s.r, s.z);
       holder.add(w);
-      group.add(holder);
+      rolling.add(holder);
       wheels.push(w);
       if (s.front) steerHolders.push(holder);
     }
   }
-  return group;
+  return { body: group, rolling };
 }
 
 const CARS = [{
@@ -1074,7 +1083,11 @@ const CARS = [{
 // triangles each, a hidden group costs nothing to skip, and it means changing
 // car is a visibility flag rather than tearing down and rebuilding geometry
 // while the world is streaming past.
-const carGroups = CARS.map(s => { const g = buildCar(s); chassis.add(g); return g; });
+const carGroups = CARS.map(s => {
+  const g = buildCar(s);
+  chassis.add(g.body); axles.add(g.rolling);
+  return g;
+});
 
 const shadow = new THREE.Mesh(new THREE.PlaneGeometry(2.9, 5.5),
   new THREE.MeshBasicMaterial({
@@ -1107,7 +1120,7 @@ CARS.forEach((s, i) => {
 function selectCar(i) {
   carIndex = i;
   const s = CARS[i];
-  carGroups.forEach((g, k) => { g.visible = k === i; });
+  carGroups.forEach((g, k) => { g.body.visible = g.rolling.visible = k === i; });
   CAR_WB = s.wb; CAR_TRACK = s.track; CAR_AXLE = s.axle;
   MASS = s.mass; PEAK_TQ = s.torque;
   shadow.scale.set(s.shadow[0] / 2.9, s.shadow[1] / 5.5, 1);
@@ -1655,8 +1668,12 @@ renderer.setAnimationLoop(() => {
   car.rotation.z = bodyRoll;
 
   // weight transfer
-  suspPitch += ((brakeIn ? 0.05 : 0) - accel * 0.006 - suspPitch) * (1 - Math.exp(-dt * 7));
-  suspRoll += (clamp(yawRate * speedAbs * 0.012, -0.14, 0.14) - suspRoll) * (1 - Math.exp(-dt * 7));
+  // Body lean, and the numbers are now the real ones. 0.14 rad is eight degrees
+  // of roll — a road car on its stops manages three, a stiff one barely two —
+  // and eight degrees across a 1.6 m track is 11 cm of travel, which is why the
+  // car looked like it was cornering on two wheels. Three degrees is a lean.
+  suspPitch += ((brakeIn ? 0.035 : 0) - accel * 0.0042 - suspPitch) * (1 - Math.exp(-dt * 7));
+  suspRoll += (clamp(yawRate * speedAbs * 0.0075, -0.055, 0.055) - suspRoll) * (1 - Math.exp(-dt * 7));
   chassis.rotation.x = suspPitch;
   chassis.rotation.z = suspRoll;
 
