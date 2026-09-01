@@ -60,7 +60,7 @@
 
   #gear {
     position: absolute; right: 30px; bottom: 132px;
-    font-size: 84px; font-weight: 300; line-height: 1; opacity: .95;
+    font-size: 84px; font-weight: 300; line-height: 1; opacity: .95; white-space: nowrap;
     transform-origin: 100% 50%;
     /* the shift flash scales this every frame it runs — give it its own layer so
        the compositor moves it instead of the main thread re-rastering 84px of
@@ -115,6 +115,9 @@
   .pcard b { display: block; font-size: 16px; font-weight: 600; letter-spacing: 1.2px; }
   .pcard i { display: block; font-style: normal; font-size: 9.5px; letter-spacing: 2px; opacity: .6; margin-top: 5px; }
   .pcard em { display: block; font-style: normal; font-size: 10.5px; line-height: 1.65; opacity: .6; margin-top: 10px; }
+  .pcard u { display: block; text-decoration: none; margin-top: 9px; font-size: 11px;
+             letter-spacing: 1px; color: #ffd166; opacity: .7; }
+  .prow.active .pcard.on u { opacity: 1; }
   #pickhint { font-size: 12px; letter-spacing: 1.5px; opacity: .62; margin-bottom: 4vh; }
 </style>
 </head>
@@ -150,7 +153,7 @@
     <b>Shift</b> clutch &mdash; hold it to change gear &nbsp; <b>1</b>&ndash;<b>6</b> gears &nbsp; <b>Q</b>/<b>E</b> down / up<br>
     to pull away: hold <b>Shift</b>, select <b>1</b>, rev up, then ease off &nbsp; <b>0</b> neutral<br>
     reverse: <b>R</b> to select it, then <b>S</b> to back up and <b>W</b> to stop<br>
-    <b>T</b> back to auto &nbsp; <b>G</b> autopilot &nbsp; <b>P</b> fresh car &nbsp; <b>M</b> sound &nbsp; <b>Esc</b> these settings
+    <b>T</b> back to auto &nbsp; <b>G</b> autopilot &nbsp; <b>H</b> headlights &nbsp; <b>P</b> fresh car &nbsp; <b>M</b> sound &nbsp; <b>Esc</b> these settings
   </div>
   <div id="pickhint"><kbd>&uarr;</kbd><kbd>&darr;</kbd> row &nbsp;&middot;&nbsp; <kbd>&larr;</kbd><kbd>&rarr;</kbd> choose &nbsp;&middot;&nbsp; <kbd>Enter</kbd> drive</div>
 </div>
@@ -213,21 +216,84 @@ const elevation = s =>
 
 const pts = [];
 const gen = { x: 0, z: 0, heading: 0 };
+
+// ================= junctions =================
+// Every few kilometres the road divides and you pick a side. The spline is one
+// array of points and everything in the game — streaming, the probe, the arc
+// length the car's position is expressed in — depends on that, so a junction is
+// not a graph: it is a point past which the road CANNOT BE GENERATED until the
+// choice has been made. Both continuations are drawn ahead of it as stubs so you
+// can see what you are choosing between; once you commit, the one you took is
+// generated for real and the other stays as a road going off into the trees.
+const FORK_EVERY = 2400;                    // metres of road between junctions
+// The heading a branch gains is the integral of its bend: FORK_BEND * 2 * RUN/PI.
+// At 0.006 that came to 1.26 rad, so every junction was a 72 degree hairpin and
+// the two options left at 144 degrees to each other. 0.0010 gives 12 degrees a
+// side, which parts the two roads by about 140 m over the run — a fork.
+const FORK_BEND = 0.0010;
+const FORK_RUN = 330;                       // how far the divergence is held
+// Committed far enough out that the world past the junction is built while it is
+// still in the fog, rather than appearing a hundred metres in front of you.
+const FORK_COMMIT = 620;
+const forkChoice = new Map();               // fork index -> -1 left, +1 right
+const forkIndexAt = s => Math.floor(s / FORK_EVERY);
+const forkS = i => i * FORK_EVERY;
+// The bend a branch adds, on top of the road's own curvature, for FORK_RUN after
+// the junction — tapered in and out so the two roads part smoothly.
+function forkBend(s) {
+  const i = forkIndexAt(s);
+  if (i < 1) return 0;
+  const side = forkChoice.get(i);
+  if (side === undefined) return 0;
+  const d = s - forkS(i);
+  if (d < 0 || d > FORK_RUN) return 0;
+  return side * FORK_BEND * Math.sin(Math.PI * d / FORK_RUN);
+}
+// How far the road has actually been generated, and whether a junction is what
+// is stopping it.
+let genBlocked = false;
 function ensurePoints(n) {
   while (pts.length <= n) {
     const i = pts.length, s = i * SEG;
-    gen.heading += curvature(s) * SEG;
+    const fi = forkIndexAt(s);
+    if (fi >= 1 && s >= forkS(fi) && !forkChoice.has(fi)) { genBlocked = true; return; }
+    gen.heading += (curvature(s) + forkBend(s)) * SEG;
     gen.x += Math.sin(gen.heading) * SEG;
     gen.z -= Math.cos(gen.heading) * SEG;
     pts.push({ x: gen.x, y: elevation(s), z: gen.z, heading: gen.heading });
   }
+  genBlocked = false;
+}
+// Walk a branch WITHOUT committing to it, for drawing the two options. Starts
+// from the last real point and applies that side's bend.
+function forkStub(fi, side, len) {
+  const s0 = forkS(fi);
+  const i0 = Math.floor(s0 / SEG);
+  ensurePoints(i0);
+  const a = pts[Math.min(i0, pts.length - 1)];
+  if (!a) return [];
+  const out = [{ x: a.x, y: a.y, z: a.z, heading: a.heading }];
+  let h = a.heading, x = a.x, z = a.z;
+  for (let d = SEG; d <= len; d += SEG) {
+    const s = s0 + d;
+    const bend = d <= FORK_RUN ? side * FORK_BEND * Math.sin(Math.PI * d / FORK_RUN) : 0;
+    h += (curvature(s) + bend) * SEG;
+    x += Math.sin(h) * SEG;
+    z -= Math.cos(h) * SEG;
+    out.push({ x, y: elevation(s), z, heading: h });
+  }
+  return out;
 }
 ensurePoints(4);
 
 function getPose(s) {
   const f = Math.max(0, s / SEG);
-  const i0 = Math.floor(f), t = f - i0;
+  let i0 = Math.floor(f), t = f - i0;
   ensurePoints(i0 + 1);
+  // Clamped at the end of what exists. Past an undecided junction there is
+  // nothing yet, and every caller here would rather have the last real pose than
+  // a crash — the choice gets made long before the car arrives.
+  if (i0 + 1 >= pts.length) { i0 = pts.length - 2; t = 1; }
   const a = pts[i0], b = pts[i0 + 1];
   return {
     x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t,
@@ -262,6 +328,9 @@ function lanesAt(s) {
   const t = smoothstep(0.863, 1, f - i);
   lanes.l = a[0] + (b[0] - a[0]) * t;
   lanes.r = a[1] + (b[1] - a[1]) * t;
+  // Nobody builds a dual carriageway through a wood. One lane each way, which
+  // also means no central barrier and nowhere to pass but the far side.
+  if (TERRAIN[terrainIndex].forest) { lanes.l = 1; lanes.r = 1; }
   return lanes;
 }
 // Where the two carriageways are separated by a barrier rather than by paint.
@@ -491,6 +560,7 @@ scene.add(sun, sun.target);
 // scene, and the only pre-built things are one prefiltered environment map each.
 const CONDITIONS = [{
   name: 'MORNING', blurb: 'CLEAR · SUN BEHIND YOU',
+  lights: false,
   stats: 'cold light and hard shadows<br>dry road, and you can see for miles',
   top: 0x2c6ec4, mid: 0x9fc4e8, haze: 0xe8dcc0, tint: 0xffe9c8,
   dir: [-0.62, 0.26, -0.74], sunCol: 0xffeacb, sunPower: 3.1,
@@ -500,6 +570,7 @@ const CONDITIONS = [{
   grip: 1.0, wet: 0, ground: 0xffffff, vignette: 'rgba(18,26,40,.38)',
 }, {
   name: 'EVENING', blurb: 'LOW SUN · LONG SHADOWS',
+  lights: true,
   stats: 'the sun sitting on the horizon<br>everything the palette was built for',
   top: 0x3f63a8, mid: 0xb98cb6, haze: 0xf2aea4, tint: 0xffc79a,
   dir: [0.40, 0.15, -0.90], sunCol: 0xffb583, sunPower: 2.5,
@@ -509,6 +580,7 @@ const CONDITIONS = [{
   grip: 1.0, wet: 0, ground: 0xffffff, vignette: 'rgba(26,10,24,.46)',
 }, {
   name: 'RAIN', blurb: 'OVERCAST · SLIPPERY',
+  lights: true,
   stats: 'wet road, a third less grip<br>the tail will step out on you',
   top: 0x4a5566, mid: 0x6b7480, haze: 0x8a8f92, tint: 0xb9bec2,
   // No direction to speak of under a closed sky — high and weak, so the light
@@ -520,6 +592,7 @@ const CONDITIONS = [{
   grip: 0.72, wet: 1, ground: 0x8f948c, vignette: 'rgba(12,16,20,.52)',
 }, {
   name: 'SNOW', blurb: 'FALLING · TREACHEROUS',
+  lights: true,
   stats: 'half the grip of a dry road<br>you will find the limit early',
   top: 0x5c6a7a, mid: 0x8e98a4, haze: 0xc6cbd0, tint: 0xdfe4e8,
   dir: [-0.30, 0.58, -0.76], sunCol: 0xc8d0d8, sunPower: 1.0,
@@ -543,6 +616,10 @@ const TERRAIN = [
   { name: 'OPEN ROAD', blurb: 'MOOR AND HILL', stats: 'the original: heather, gorse<br>drystone country and long views', city: false, forest: false },
   { name: 'FOREST', blurb: 'CLOSE COUNTRY', stats: 'trees right up to the verge<br>dark, tight, and you cannot see past them', city: false, forest: true },
   { name: 'CITY', blurb: 'BUILT UP', stats: 'blocks, kerbs, street lighting<br>and the horizon two streets away', city: true, forest: false },
+];
+const GEARBOXES = [
+  { name: 'AUTOMATIC', blurb: 'IT CHANGES FOR YOU', stats: 'kickdown when you ask for it<br>and it will not let you stall' },
+  { name: 'MANUAL', blurb: 'CLUTCH AND GEARS', stats: 'hold Shift, pick a gear, ease off<br>money-shift it and the engine is gone' },
 ];
 const TRAFFIC_LEVELS = [
   { name: 'EMPTY', blurb: '0%', stats: 'the road to yourself<br>nothing to hit and nobody to pass', n: 0 },
@@ -606,7 +683,8 @@ function makeRoadTexture() {
 // Every kind of stripe the road can carry, side by side in one texture, so a
 // chunk's entire paintwork is one mesh and one draw call however many lanes it
 // has. A strip of geometry picks its stripe by the u range it samples.
-const MK = { solid: 0.010, solid2: 0.240, dash: 0.260, dash2: 0.490, worn: 0.510, worn2: 0.740 };
+const MK = { solid: 0.010, solid2: 0.240, dash: 0.260, dash2: 0.490, worn: 0.510, worn2: 0.740,
+             arrow: 0.760, arrow2: 0.990 };
 function makeMarkTexture() {
   const W = 128, H = ROAD_PX, PM = H / ROAD_TILE;
   const c = document.createElement('canvas');
@@ -617,6 +695,19 @@ function makeMarkTexture() {
   // 4 m of paint, 8 m of nothing — a 12 m cycle, so it tiles twice in 24 m
   for (let m = 0; m < ROAD_TILE; m += 12) { g.fillStyle = '#cfccc3'; g.fillRect(32, m * PM, 32, 4 * PM); }
   g.fillStyle = 'rgba(20,21,25,.30)'; g.fillRect(64, 0, 32, H);        // wheel polish
+  // A direction arrow, once per 24 m tile, pointing along +v. Lanes going the
+  // other way sample the same stripe with their v negated, which turns it round.
+  g.fillStyle = '#cfccc3';
+  const ax = 96 + 16, ay = H * 0.5, sc = H / ROAD_TILE;
+  g.beginPath();
+  g.moveTo(ax, ay - 2.2 * sc);
+  g.lineTo(ax + 5.6, ay - 0.5 * sc);
+  g.lineTo(ax + 1.9, ay - 0.5 * sc);
+  g.lineTo(ax + 1.9, ay + 2.2 * sc);
+  g.lineTo(ax - 1.9, ay + 2.2 * sc);
+  g.lineTo(ax - 1.9, ay - 0.5 * sc);
+  g.lineTo(ax - 5.6, ay - 0.5 * sc);
+  g.closePath(); g.fill();
   // scuff the paint back, but only where there is paint to scuff
   g.globalCompositeOperation = 'source-atop';
   for (let i = 0; i < 4000; i++) {
@@ -840,11 +931,15 @@ function groundAt(s, side, dist) {
 // moor you come through something every few kilometres. Passing THROUGH places
 // is most of what stops a long drive feeling like one looped kilometre.
 const builtUp = s => TERRAIN[terrainIndex].city ? 1
+  : TERRAIN[terrainIndex].forest ? 0                  // completely wild
   : smoothstep(0.665, 0.80, vnoise(s * 0.0014, 7.3));
 
 function buildChunk(ci) {
   const i0 = ci * CHUNK;
   ensurePoints(i0 + CHUNK + 1);
+  // Past an undecided junction there are no points to build from. Skip it and
+  // come back: the streamer retries every frame while anything is missing.
+  if (pts.length <= i0 + CHUNK + 1) return;
   const group = new THREE.Group();
   const solids = [];
   const n = CHUNK + 1;
@@ -887,11 +982,12 @@ function buildChunk(ci) {
     // into one buffer, so a five-lane road with eleven separate strips of paint
     // on it still draws in one call.
     const mv = [], muv = [], mi = [];
-    const emit = (k0, k1, off, half, u0, u1) => {
+    const emit = (k0, k1, off, half, u0, u1, flip) => {
       for (let k = k0; k <= k1; k++) {
         const p = pts[i0 + k];
         const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
-        const d = off(k), y = p.y + 0.085, v = sAt(k) / ROAD_TILE;
+        const d = off(k), y = p.y + 0.085;
+        const v = sAt(k) / ROAD_TILE * (flip ? -1 : 1);
         const base = mv.length / 3;
         mv.push(p.x + rx * (d - half), y, p.z + rz * (d - half),
                 p.x + rx * (d + half), y, p.z + rz * (d + half));
@@ -901,13 +997,13 @@ function buildChunk(ci) {
     };
     // Emit a strip only over the rows where it exists, so a lane line simply
     // begins where its lane does instead of being drawn through solid tarmac.
-    const runs = (test, off, half, u0, u1) => {
+    const runs = (test, off, half, u0, u1, flip) => {
       let k = 0;
       while (k <= CHUNK) {
         if (!test(k)) { k++; continue; }
         let k1 = k;
         while (k1 + 1 <= CHUNK && test(k1 + 1)) k1++;
-        if (k1 > k) emit(k, k1, off, half, u0, u1);
+        if (k1 > k) emit(k, k1, off, half, u0, u1, flip);
         k = k1 + 1;
       }
     };
@@ -923,6 +1019,12 @@ function buildChunk(ci) {
     runs(k => !divided(sAt(k)) && !centreDashed(sAt(k)), () => 0.09, 0.075, MK.solid, MK.solid2);
     runs(k => divided(sAt(k)), () => 0.62, 0.08, MK.solid, MK.solid2);
     runs(k => divided(sAt(k)), () => -0.62, 0.08, MK.solid, MK.solid2);
+    // Which way each lane goes, painted on it. Oncoming lanes sample the same
+    // arrow with their v negated, which turns it round without a second stripe.
+    for (let i = 0; i < 4; i++) {
+      runs(k => nR(k) > i + 0.98, () => (i + 0.5) * LANE_W, 0.55, MK.arrow, MK.arrow2, false);
+      runs(k => nL(k) > i + 0.98, () => -(i + 0.5) * LANE_W, 0.55, MK.arrow, MK.arrow2, true);
+    }
     // lane dividers within each direction are always broken
     for (let i = 1; i < 4; i++) {
       runs(k => nL(k) > i + 0.02, () => -i * LANE_W, 0.08, MK.dash, MK.dash2);
@@ -1029,17 +1131,17 @@ function buildChunk(ci) {
   const band = vnoise(sAt(0) * 0.00021, 3.1);
 
   if (!CITY) { // scrub — the whole chunk's vegetation in one draw call
-    const im = new THREE.InstancedMesh(bushGeo, bushMat, BUSHES);
+    const im = new THREE.InstancedMesh(bushGeo, bushMat, FOREST ? BUSHES + 260 : BUSHES);
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
     const sc = new THREE.Vector3(), p3 = new THREE.Vector3(), col = new THREE.Color();
-    for (let b = 0; b < BUSHES; b++) {
+    for (let b = 0; b < im.count; b++) {
       const ki = Math.floor(rnd() * CHUNK), p = pts[i0 + ki], s = sAt(ki);
       const side = rnd() < 0.5 ? -1 : 1;
       const u = rnd();
       // Measured out from the EDGE of the tarmac, not the centreline. On a
       // five-lane stretch the tarmac reaches 10.8 m and the old fixed 8 m put
       // gorse in the outside lane — which the car then bounced off.
-      const dist = edgeAt(s, side) + 1.4 + u * u * 320;
+      const dist = edgeAt(s, side) + (FOREST ? 0.8 : 1.4) + u * u * (FOREST ? 130 : 320);
       const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
       // scatter ALONG the road, never across it — a lateral jitter this size
       // would plant bushes on the tarmac
@@ -1049,7 +1151,7 @@ function buildChunk(ci) {
       // Scaled to the car rather than to the screen: a gorse bush beside the
       // road is knee to waist high on a person, so it comes up to about the
       // Ferrari's sills. They still grow with distance, to stay resolvable.
-      const r = (0.32 + rnd() * 0.80) * (1 + dist * 0.005);
+      const r = (0.32 + rnd() * (FOREST ? 1.15 : 0.80)) * (1 + dist * 0.005);
       e.set(rnd() * 0.45, rnd() * 6.283, rnd() * 0.45);
       sc.set(r * (0.85 + rnd() * 0.5), r * (0.42 + rnd() * 0.45), r * (0.85 + rnd() * 0.5));
       p3.set(x, groundAt(s + j, side, dist) + sc.y * 0.35, z);
@@ -1130,7 +1232,7 @@ function buildChunk(ci) {
       m.compose(p3, q.setFromEuler(e), sc);
       im.setMatrixAt(b, m);
       // A tree is a solid object and you were driving through them
-      solids.push({ x, z, r: 0.26 * sc.x });
+      solids.push({ x, z, r: 0.22 * sc.x, soft: sc.x < 0.62 ? 1 : 0 });
       col.setHSL(0.225 + band * 0.05 + rnd() * 0.09, 0.18 + rnd() * 0.26, 0.05 + rnd() * 0.065, THREE.SRGBColorSpace);
       im.setColorAt(b, col);
     }
@@ -1157,7 +1259,7 @@ function buildChunk(ci) {
     }
   }
 
-  if (!CITY) for (let k = 0; k < CHUNK; k += 16) { // marker posts
+  if (!CITY && !FOREST) for (let k = 0; k < CHUNK; k += 16) { // marker posts
     const p = pts[i0 + k];
     const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
     for (const side of [-1, 1]) {
@@ -1276,7 +1378,7 @@ function buildChunk(ci) {
       const base = p.y + 0.24;
       const pole = poleGeo.clone(); pole.translate(x, base + 3.7, z);
       poles.push(pole);
-      solids.push({ x, z, r: 0.22 });      // a lighting column is a steel post
+      solids.push({ x, z, r: 0.16, soft: 1 });   // a column bends; it does not stop you
       // only the head reaches back out over the carriageway, as they do
       const head = lampGeo.clone();
       head.rotateY(Math.PI / 2 - p.heading);
@@ -1285,6 +1387,37 @@ function buildChunk(ci) {
     }
     if (poles.length) group.add(new THREE.Mesh(mergeGeos(poles), poleMat));
     if (lamps.length) group.add(new THREE.Mesh(mergeGeos(lamps), lampMat));
+  }
+
+  { // The other way. Once the choice is made the branch you took is the road;
+    // this is the one you did not, running off for a few hundred metres before
+    // the trees take it. It is drawn from the same generator, so it is exactly
+    // the road that would have been there.
+    const fi = forkIndexAt(sAt(CHUNK)) ;
+    for (const f of [fi, fi - 1]) {
+      if (f < 1 || !forkChoice.has(f)) continue;
+      const fs0 = forkS(f);
+      if (fs0 < sAt(0) - 40 || fs0 > sAt(CHUNK)) continue;
+      const branch = forkStub(f, -forkChoice.get(f), 300);
+      if (branch.length < 3) continue;
+      const rows = branch.length;
+      const pos = new Float32Array(rows * 6), uv = new Float32Array(rows * 4), idx = [];
+      for (let k = 0; k < rows; k++) {
+        const p = branch[k];
+        const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
+        // narrows away to nothing at the end, so it reads as going into the trees
+        const w = LANE_W * (k < rows - 14 ? 1 : (rows - 1 - k) / 14);
+        const y = p.y + 0.07, v = (fs0 + k * SEG) / ROAD_TILE;
+        pos.set([p.x - rx * w, y, p.z - rz * w, p.x + rx * w, y, p.z + rz * w], k * 6);
+        uv.set([-w / 6, v, w / 6, v], k * 4);
+        if (k < rows - 1) { const a = k * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+      geo.setIndex(idx); geo.computeVertexNormals();
+      group.add(new THREE.Mesh(geo, roadMat));
+    }
   }
 
   group.userData.solids = solids;
@@ -1881,13 +2014,32 @@ const carGroups = CARS.map(s => {
   return g;
 });
 
+// A pool of light on the road ahead. Two real spotlights would cost a shadow
+// pass and a lot of fill; this is one additive plane that rides with the car and
+// does the same job at this camera distance.
+let lightsOn = false;
+const beam = new THREE.Mesh(new THREE.PlaneGeometry(7.5, 20),
+  new THREE.MeshBasicMaterial({
+    map: makeBlobTexture(0.85, 0), color: 0xffe6bd, transparent: true,
+    opacity: 0.30, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
+  }));
+beam.rotation.x = -Math.PI / 2;
+beam.position.set(0, 0.05, -9.5);
+beam.visible = false;
+function setLights(on) {
+  lightsOn = on;
+  beam.visible = on;
+  whiteLamp.emissiveIntensity = on ? 3.4 : 1.0;
+  lampMat.emissiveIntensity = on ? 1.9 : lampMat.emissiveIntensity;
+}
+
 const shadow = new THREE.Mesh(new THREE.PlaneGeometry(2.9, 5.5),
   new THREE.MeshBasicMaterial({
     map: makeBlobTexture(0.62, 0), transparent: true, depthWrite: false, opacity: 0.85,
   }));
 shadow.rotation.x = -Math.PI / 2;
 shadow.position.y = 0.035;
-car.add(shadow);   // stays flat on the ground rather than rolling with the body
+car.add(shadow, beam);   // both stay flat on the ground rather than rolling
 scene.add(car);
 
 // ================= car selection =================
@@ -1911,11 +2063,13 @@ function selectCar(i) {
   REV_CRIT = REDLINE * 1.09; IDLE = s.idle || 850;
   if (gear > RATIOS.length) gear = RATIOS.length;
   if (IS_EV) { manual = false; if (gear > 1) gear = 1; engineOn = true; blown = false; }
+  pend.box = manual ? 1 : 0;
   shadow.scale.set(s.shadow[0] / 2.9, s.shadow[1] / 5.5, 1);
 }
 function openPicker() {
   picking = true;
-  pend.car = carIndex; pend.terrain = terrainIndex; pend.traffic = trafficIndex; pend.cond = condIndex;
+  pend.car = carIndex; pend.terrain = terrainIndex; pend.traffic = trafficIndex;
+  pend.cond = condIndex; pend.box = manual ? 1 : 0;
   paintPicker();
   pickEl.style.display = 'flex';
   for (const k in keys) keys[k] = false;   // no key survives the overlay opening
@@ -1965,6 +2119,10 @@ function applyConditions(i) {
   buildingMat.emissiveIntensity = c.exposure > 1.1 ? 0.18 : 0.95;
   lampMat.emissiveIntensity = c.exposure > 1.1 ? 0.35 : 1.7;
   rainMesh.visible = !!c.wet;
+  // Stated per condition rather than inferred from the exposure, which was the
+  // wrong signal — the morning palette has a LOWER exposure than the evening one,
+  // so the lights came on in the sunshine and off at dusk. H overrides either way.
+  setLights(!!c.lights);
   CONDITION_GRIP = c.grip;
   document.getElementById('grade').style.background =
     'radial-gradient(ellipse 78% 68% at 50% 46%, rgba(0,0,0,0) 40%, ' + c.vignette + ' 100%)';
@@ -1991,11 +2149,12 @@ function applyTraffic(i) { trafficIndex = i; }
 // happens to the car or the world until you apply it, and backing out with Esc
 // leaves everything exactly as it was. Changing mode tears down and rebuilds
 // every chunk, which is not something to do to somebody who was only looking.
-const pend = { car: 0, terrain: 0, traffic: 2, cond: 1 };
+const pend = { car: 0, terrain: 0, traffic: 2, box: 0, cond: 1 };
 const PICK = [
   { label: 'CAR', list: CARS, key: 'car' },
   { label: 'TERRAIN', list: TERRAIN, key: 'terrain' },
   { label: 'TRAFFIC', list: TRAFFIC_LEVELS, key: 'traffic' },
+  { label: 'GEARBOX', list: GEARBOXES, key: 'box' },
   { label: 'WEATHER', list: CONDITIONS, key: 'cond' },
 ];
 let pickRow = 0;
@@ -2012,7 +2171,17 @@ let pickRow = 0;
     row.list.forEach((item, i) => {
       const b = document.createElement('button');
       b.className = 'pcard';
-      b.innerHTML = '<b>' + item.name + '</b><i>' + item.blurb + '</i><em>' + item.stats + '</em>';
+      // For a car, the two numbers that decide how it feels down a straight.
+      let stats = item.stats;
+      if (row.key === 'car') {
+        // RPM2RAD and WHEEL_R spelled out: the cards are built while the module
+        // is still evaluating and the drivetrain constants are declared below.
+        const gTop = item.ev ? 1.05 : item.gears[item.gears.length - 1];
+        const top = (item.redline - 150) * (Math.PI / 30) * 0.38 / (gTop * item.final) * 3.6;
+        stats += '<u>' + Math.round(top / 5) * 5 + ' km/h &nbsp;·&nbsp; '
+               + (item.ev ? 'single speed' : item.gears.length + ' gears') + '</u>';
+      }
+      b.innerHTML = '<b>' + item.name + '</b><i>' + item.blurb + '</i><em>' + stats + '</em>';
       b.addEventListener('click', () => { pickRow = r; pend[row.key] = i; applyPending(); paintPicker(); });
       cards.appendChild(b);
     });
@@ -2036,6 +2205,10 @@ function applyPending() {
   if (pend.terrain !== terrainIndex) applyTerrain(pend.terrain);
   if (pend.traffic !== trafficIndex) applyTraffic(pend.traffic);
   if (pend.cond !== condIndex) applyConditions(pend.cond);
+  // An electric car refuses manual, so read the answer back rather than assuming
+  // it took — otherwise the row would sit there claiming something untrue.
+  if (!!pend.box !== manual) setManual(!!pend.box);
+  pend.box = manual ? 1 : 0;
 }
 function pickKey(code) {
   const row = PICK[pickRow], n = row.list.length;
@@ -2411,9 +2584,10 @@ addEventListener('keydown', e => {
     if (autoDrive && manual) setManual(false);
     if (autoDrive) autoLane = Math.max(0, Math.floor(Math.max(0, dEst) / LANE_W));
   }
+  if (k === 'h') setLights(!lightsOn);
   if (k === 'c') camMode = (camMode + 1) % 3;
   if (k === 'm') muted = !muted;
-  if (k === 't') setManual(!manual);
+  if (k === 't') { setManual(!manual); pend.box = manual ? 1 : 0; paintPicker(); }
   if (k === 'p') respawn();
 
   // Read e.code, not e.key: with the clutch (Shift) held, "1" arrives as "!"
@@ -2761,16 +2935,26 @@ function aheadIn(lat, swept) {
 // Tests where traffic IS and where it has already decided to go: two cars moving
 // into the same gap from opposite sides is how you end up alongside somebody.
 function lineFree(lat, v) {
-  const back = -(18 + v * 0.9), front = 26 + v * 1.1;
+  // Time, not distance. The old test was a fixed 100 m window, which refused
+  // half the lane changes this thing wanted to make: a car forty metres back
+  // doing exactly your speed is not an obstacle at all, and a car eighty back
+  // doing twenty more is — a window treats them identically. What matters is
+  // whether anybody arrives in the space before you have used it.
+  const check = (oLatNow, oLatGoing, oS, oSpeed) => {
+    if (Math.abs(oLatNow - lat) > 2.9 && Math.abs(oLatGoing - lat) > 2.9) return true;
+    const rel = oS - sEst;
+    if (rel > -9 && rel < 9) return false;            // already in that space
+    const closing = rel < 0 ? oSpeed - v : v - oSpeed;
+    if (closing <= 0.5) return true;                  // not gaining on anybody
+    return (Math.abs(rel) - 9) / closing > 3.0;       // three seconds of room
+  };
   for (const t of traffic) {
     if (t.dir < 0) continue;
-    const now = (t.laneF + 0.5) * LANE_W, going = (t.lane + 0.5) * LANE_W;
-    if (Math.abs(now - lat) > 2.9 && Math.abs(going - lat) > 2.9) continue;
-    const rel = t.s - sEst;
-    if (rel > back && rel < front) return false;
+    if (!check((t.laneF + 0.5) * LANE_W, (t.lane + 0.5) * LANE_W, t.s, t.speed)) return false;
   }
-  return true;
+  return check(dEst, dEst, sEst, Math.max(0, vLong));
 }
+
 
 function autopilot(dt) {
   // It only ever drives forwards, so the first thing it does with a car handed
@@ -2845,11 +3029,12 @@ function autopilot(dt) {
   } else {
     // ---- or just pick the lane that is actually moving ----
     autoHold -= dt;
+    autoDbg.why = autoHold > 0 ? 'waiting out the last change' : 'in the best lane there is';
     if (autoHold <= 0) {
-      let best = autoLane, bestScore = -1e9;
+      let best = autoLane, bestScore = -1e9, blocked = 0;
       for (let l = 0; l < nLanes; l++) {
         const lat = (l + 0.5) * LANE_W;
-        if (l !== autoLane && !lineFree(lat, v)) continue;
+        if (l !== autoLane && !lineFree(lat, v)) { blocked++; continue; }
         const a = aheadIn(lat, false);
         let score = a ? Math.min(openRoad, a.spd + (a.gap - 30) * 0.30) : openRoad;
         score -= Math.abs(l - autoLane) * 0.6;   // changing lane costs a little
@@ -2858,7 +3043,8 @@ function autopilot(dt) {
         score -= l === 0 && !split ? (oncoming < 150 ? 500 : 2.2) : 0;
         if (score > bestScore) { bestScore = score; best = l; }
       }
-      if (best !== autoLane) { autoLane = best; autoHold = 0.9; }
+      if (best !== autoLane) { autoLane = best; autoHold = 0.9; autoDbg.why = 'moving over'; }
+      else if (blocked) autoDbg.why = 'the lane it wants is occupied';
     }
     // and abandon a change the moment the gap closes
     const here = clamp(Math.floor(Math.max(0, dEst) / LANE_W), 0, nLanes - 1);
@@ -2929,10 +3115,10 @@ function autopilot(dt) {
 
 // ================= loop =================
 const clock = new THREE.Clock();
-let odo = 0, autoShiftLock = 0, lastChunk = -9999;
+let odo = 0, autoShiftLock = 0, lastChunk = -9999, pendingChunks = false;
 // The road has no end, so the only thing that can tell you how far you have come
 // is how far you have come. A running trip and a marker every ten kilometres.
-let tripTime = 0, milestone = 0, toastFor = 0;
+let tripTime = 0, milestone = 0, toastFor = 0, forkToast = 0, forkTook = "", forkWarn = 0;
 const hhmm = t => (t >= 3600 ? Math.floor(t / 3600) + 'h ' : '') + Math.floor(t / 60) % 60 + 'm';
 
 // Adaptive resolution. Fill rate is the one cost here that scales with a screen
@@ -2950,7 +3136,7 @@ selectCar(0);
 applyTerrain(0);
 applyTraffic(2);
 applyConditions(1);
-pend.car = 0; pend.terrain = 0; pend.traffic = 2; pend.cond = 1;
+pend.car = 0; pend.terrain = 0; pend.traffic = 2; pend.cond = 1; pend.box = 0;
 paintPicker();
 
 renderer.setAnimationLoop(() => {
@@ -3216,6 +3402,23 @@ renderer.setAnimationLoop(() => {
     else pos.y += (groundY - pos.y) * (1 - Math.exp(-dt * 18));
   }
 
+  // ---------- junctions ----------
+  // Decided by which half of the road you are on when you get close enough. The
+  // moment it is decided the world past the junction can be generated, so the
+  // chunks that were waiting build on the next pass.
+  {
+    const fi = forkIndexAt(sEst) + 1;
+    const toGo = forkS(fi) - sEst;
+    if (fi >= 1 && toGo < FORK_COMMIT && toGo > -900 && !forkChoice.has(fi)) {
+      forkChoice.set(fi, dEst < 0 ? -1 : 1);
+      pendingChunks = true;
+      forkToast = 2.6;
+      forkTook = dEst < 0 ? 'LEFT' : 'RIGHT';
+    }
+    // and a word about it while you still have time to move across
+    forkWarn = (fi >= 1 && !forkChoice.has(fi) && toGo < 1250 && toGo > 0) ? toGo : 0;
+  }
+
   // ---------- the central barrier ----------
   // Concrete does not care how fast you were going. Held as a lateral limit
   // rather than as a solid in the list, because it is a continuous wall and the
@@ -3239,6 +3442,18 @@ renderer.setAnimationLoop(() => {
     if (!g) continue;
     for (const t of g.userData.solids) {
       const dx = pos.x - t.x, dz = pos.z - t.z;
+      // Frangible. A lighting column or a sapling is not a wall, and being
+      // stopped dead by an invisible circle round a 10 cm post is far worse than
+      // driving through one: it scrubs a little speed and shakes the camera and
+      // that is all. Rate-limited by dt so staying in contact cannot pin the car.
+      if (t.soft) {
+        const rr2 = (t.r + CAR_R) * (t.r + CAR_R);
+        if (dx * dx + dz * dz < rr2) {
+          vLong -= Math.sign(vLong) * Math.min(Math.abs(vLong), 7 * dt);
+          camShake = Math.min(0.6, camShake + 1.6 * dt);
+        }
+        continue;
+      }
       let nx, nz, px, pz;
       if (t.hw !== undefined) {
         // Oriented box. Work in its own frame, find the nearest point on it, and
@@ -3287,10 +3502,14 @@ renderer.setAnimationLoop(() => {
   // Only when the chunk under the car actually changes. Nothing here can differ
   // between two frames in the same chunk, and the key spread was allocating an
   // array sixty times a second to discover that.
-  if (carChunk !== lastChunk) {
+  // Retried whenever the chunk under the car changes OR the road is still
+  // waiting on a junction, because in that case chunks that could not be built a
+  // moment ago can be built now.
+  if (carChunk !== lastChunk || genBlocked || pendingChunks) {
     lastChunk = carChunk;
+    pendingChunks = false;
     for (let ci = Math.max(0, carChunk - BEHIND); ci <= carChunk + AHEAD; ci++)
-      if (!chunks.has(ci)) buildChunk(ci);
+      if (!chunks.has(ci)) { buildChunk(ci); if (!chunks.has(ci)) pendingChunks = true; }
     for (const ci of [...chunks.keys()])
       if (ci < carChunk - BEHIND || ci > carChunk + AHEAD) disposeChunk(ci);
   }
@@ -3445,12 +3664,25 @@ renderer.setAnimationLoop(() => {
   setTxt(el.trip, hhmm(tripTime) + ' · ' + Math.round(odo / Math.max(tripTime, 1) * 3.6) + ' avg');
   if (odo > (milestone + 1) * 10000) {
     milestone = Math.floor(odo / 10000);
-    el.toast.innerHTML = milestone * 10 + ' KM<small>' + hhmm(tripTime) + ' on the road</small>';
+    if (forkWarn <= 0 && forkToast <= 0) el.toast.innerHTML = milestone * 10 + ' KM<small>' + hhmm(tripTime) + ' on the road</small>';
     toastFor = 3.4;
   }
+  // A junction coming up, then which way you went. Same slot as the milestones,
+  // and the junction wins because it is the one you can still do something about.
+  forkToast = Math.max(0, forkToast - dt);
   toastFor = Math.max(0, toastFor - dt);
-  setSty(el.toast, 'opacity', toastFor > 0 ? '0.9' : '0');
-  setTxt(el.gear, gear === -1 ? 'R' : gear === 0 ? 'N' : IS_EV ? 'D' : gear);
+  if (forkWarn > 0) {
+    el.toast.innerHTML = 'JUNCTION<small>' + Math.round(forkWarn / 10) * 10
+      + ' m &mdash; keep left or right to choose</small>';
+    setSty(el.toast, 'opacity', '0.9');
+  } else if (forkToast > 0) {
+    el.toast.innerHTML = 'TOOK THE ' + forkTook + '<small>' + (odo / 1000).toFixed(1) + ' km</small>';
+    setSty(el.toast, 'opacity', '0.9');
+  } else setSty(el.toast, 'opacity', toastFor > 0 ? '0.9' : '0');
+  // An automatic is in D and then a gear within it, which is what the selector
+  // on the console actually says; a manual is just the gear.
+  setTxt(el.gear, gear === -1 ? 'R' : gear === 0 ? 'N'
+               : IS_EV ? 'D' : manual ? String(gear) : 'D' + gear);
   setCls(el.gear, (manual && rpm > REDLINE * 0.92 && gear > 0) ? 'warn' : '');
   // the dial is scaled to BURST, so the red band above redline is real estate you
   // can actually watch the needle climb into
@@ -3463,6 +3695,12 @@ renderer.setAnimationLoop(() => {
   setCls(el.lampRev, IS_EV ? '' : rpm > REV_CRIT ? 'crit' : rpm > REDLINE ? 'on' : '');
   setCls(el.lampEng, blown ? 'on' : '');
   setCls(el.lampAuto, autoDrive ? 'on' : '');
+
+  // Brake lights. redLamp is the player's cars only — traffic builds its own
+  // materials — so this can be driven straight off the pedal, and it comes up
+  // from a dimmer standing glow when the headlights are on.
+  const wantRed = (lightsOn ? 2.2 : 1.2) + brakeIn * 2.8;
+  if (redLamp.emissiveIntensity !== wantRed) redLamp.emissiveIntensity = wantRed;
 
   drawMinimap(dt);
 
