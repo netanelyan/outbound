@@ -68,26 +68,33 @@
      visible underneath while you arrow between them. */
   #pick {
     position: fixed; inset: 0; z-index: 5; display: flex; flex-direction: column;
-    align-items: center; gap: 24px; padding-top: 13vh;
-    background: linear-gradient(180deg, rgba(26,13,28,.88) 0%, rgba(26,13,28,.66) 48%, rgba(26,13,28,0) 88%);
+    align-items: center; gap: 18px; padding-top: 7vh; overflow-y: auto;
+    background: linear-gradient(180deg, rgba(26,13,28,.90) 0%, rgba(26,13,28,.72) 52%, rgba(26,13,28,0) 92%);
     font-family: "Segoe UI", system-ui, sans-serif; color: #fff;
     text-shadow: 0 1px 5px rgba(0,0,0,.5); user-select: none;
   }
-  #picktitle { font-size: 13px; letter-spacing: 6px; opacity: .72; }
-  #pickcards { display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; }
-  .pcard {
-    width: 236px; padding: 18px 20px 17px; text-align: left; cursor: pointer;
-    background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.14);
-    border-radius: 12px; color: inherit; font: inherit;
-    transition: background .15s, border-color .15s, transform .15s;
+  #picktitle { font-size: 15px; letter-spacing: 8px; opacity: .8; font-weight: 600; }
+  #pickrows { display: flex; flex-direction: column; gap: 13px; }
+  .prow { display: flex; align-items: stretch; gap: 14px; }
+  .plabel {
+    width: 84px; padding-top: 15px; text-align: right; font-size: 10px;
+    letter-spacing: 3px; opacity: .32; transition: opacity .15s, color .15s;
   }
-  .pcard:hover { background: rgba(255,255,255,.10); }
-  .pcard.on { background: rgba(255,255,255,.14); border-color: #ffd166; transform: translateY(-5px); }
-  .pcard b { display: block; font-size: 20px; font-weight: 600; letter-spacing: 1.5px; }
-  .pcard i { display: block; font-style: normal; font-size: 11px; letter-spacing: 2px; opacity: .6; margin-top: 6px; }
-  .pcard em { display: block; font-style: normal; font-size: 11.5px; line-height: 1.7; opacity: .5; margin-top: 13px; }
-  .pcard.on em { opacity: .82; }
-  #pickhint { font-size: 12px; letter-spacing: 1.5px; opacity: .62; }
+  .prow.active .plabel { opacity: 1; color: #ffd166; }
+  .pcards { display: flex; gap: 11px; }
+  .pcard {
+    width: 204px; padding: 13px 15px 12px; text-align: left; cursor: pointer;
+    background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.12);
+    border-radius: 11px; color: inherit; font: inherit; opacity: .6;
+    transition: background .15s, border-color .15s, transform .15s, opacity .15s;
+  }
+  .pcard:hover { background: rgba(255,255,255,.10); opacity: .92; }
+  .pcard.on { background: rgba(255,255,255,.11); border-color: rgba(255,209,102,.45); opacity: 1; }
+  .prow.active .pcard.on { background: rgba(255,255,255,.16); border-color: #ffd166; transform: translateY(-4px); }
+  .pcard b { display: block; font-size: 16px; font-weight: 600; letter-spacing: 1.2px; }
+  .pcard i { display: block; font-style: normal; font-size: 9.5px; letter-spacing: 2px; opacity: .6; margin-top: 5px; }
+  .pcard em { display: block; font-style: normal; font-size: 10.5px; line-height: 1.65; opacity: .6; margin-top: 10px; }
+  #pickhint { font-size: 12px; letter-spacing: 1.5px; opacity: .62; margin-bottom: 4vh; }
 </style>
 </head>
 <body>
@@ -112,14 +119,14 @@
     <kbd>Shift</kbd> clutch &mdash; <em>hold it to change gear</em> &nbsp; <kbd>1</kbd>–<kbd>6</kbd> gears &nbsp; <kbd>Q</kbd>/<kbd>E</kbd> down / up<br>
     to pull away: hold <kbd>Shift</kbd>, select <kbd>1</kbd>, rev up, then ease off<br>
     <kbd>R</kbd> reverse &nbsp; <kbd>0</kbd> neutral &nbsp; <kbd>T</kbd> back to auto<br>
-    <kbd>C</kbd> camera &nbsp; <kbd>V</kbd> change car &nbsp; <kbd>P</kbd> fresh car &nbsp; <kbd>M</kbd> sound
+    <kbd>C</kbd> camera &nbsp; <kbd>V</kbd> car / mode / weather &nbsp; <kbd>P</kbd> fresh car &nbsp; <kbd>M</kbd> sound
   </div>
 </div>
 
 <div id="pick">
-  <div id="picktitle">SELECT CAR</div>
-  <div id="pickcards"></div>
-  <div id="pickhint"><kbd>&larr;</kbd><kbd>&rarr;</kbd> choose &nbsp;&middot;&nbsp; <kbd>Enter</kbd> drive &nbsp;&middot;&nbsp; <kbd>V</kbd> to change later</div>
+  <div id="picktitle">OUTBOUND</div>
+  <div id="pickrows"></div>
+  <div id="pickhint"><kbd>&uarr;</kbd><kbd>&darr;</kbd> row &nbsp;&middot;&nbsp; <kbd>&larr;</kbd><kbd>&rarr;</kbd> choose &nbsp;&middot;&nbsp; <kbd>Enter</kbd> drive &nbsp;&middot;&nbsp; <kbd>V</kbd> to change later</div>
 </div>
 
 <script type="importmap">
@@ -199,8 +206,11 @@ function getPose(s) {
 // Four octaves, and the amplitude of each grows with distance from the road.
 // Near the verge the ground has to stay flat enough to drive on; a kilometre out
 // it wants to be a landform, or the horizon reads as a flat green sea.
+// RELIEF is knocked right down in the city: streets are cut and levelled, and a
+// block of flats pitched over a moorland fold reads as a landslide.
+let RELIEF = 1;
 function terrainY(roadY, x, z, absd) {
-  const t = smoothstep(7, 52, absd);
+  const t = smoothstep(7, 52, absd) * RELIEF;
   const n0 = vnoise(x * 0.0013, z * 0.0013);   // hills
   const n2 = vnoise(x * 0.0040, z * 0.0040);   // folds
   const n1 = vnoise(x * 0.0200, z * 0.0200);   // hummocks
@@ -216,7 +226,15 @@ function probe(x, z, sHint) {
   let p = getPose(sHint);
   for (let k = 0; k < 2; k++) {
     const fx = Math.sin(p.heading), fz = -Math.cos(p.heading);
-    sHint = Math.max(0, sHint + (x - p.x) * fx + (z - p.z) * fz);
+    // Clamped, and the clamp is what makes this a LOCAL search rather than a
+    // global one. The road curves back near itself over a few kilometres, so a
+    // point far off it can project onto several arc lengths at once — and the
+    // raw Newton step will happily jump between them from one frame to the
+    // next. sEst then teleports, carChunk teleports with it, and the streamer
+    // tears down and rebuilds every chunk in the world, every single frame.
+    // Nothing legitimate moves more than a metre of arc length per frame.
+    const step = clamp((x - p.x) * fx + (z - p.z) * fz, -45, 45);
+    sHint = Math.max(0, sHint + step);
     p = getPose(sHint);
   }
   const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
@@ -252,12 +270,16 @@ const scene = new THREE.Scene();
 const FOV = 44;
 const camera = new THREE.PerspectiveCamera(FOV, innerWidth / innerHeight, 0.35, 2400);
 
-// Dusk palette. Everything else in the file is graded against these four values —
-// the fog, the terrain, the lights and the vignette all come back to them.
-const SKY_TOP = new THREE.Color(0x3f63a8);
-const SKY_MID = new THREE.Color(0xb98cb6);
-const SKY_HAZE = new THREE.Color(0xf2aea4);
-const SUN_TINT = new THREE.Color(0xffc79a);
+// The palette. Everything else in the file is graded against these values — the
+// fog, the terrain, the lights, the clouds and the vignette all come back to
+// them — so they are held in mutable objects that the sky shader's uniforms and
+// the fog point AT rather than copy. applyConditions() below writes through them
+// and the whole scene regrades without a single object being rebuilt.
+const SKY_TOP = new THREE.Color();
+const SKY_MID = new THREE.Color();
+const SKY_HAZE = new THREE.Color();
+const SUN_TINT = new THREE.Color();
+const CLOUD_DARK = new THREE.Color();
 const SUN_DIR = new THREE.Vector3(0.40, 0.15, -0.90).normalize();
 
 scene.fog = new THREE.FogExp2(SKY_HAZE, 0.0016);
@@ -303,6 +325,8 @@ const skyDome = new THREE.Mesh(
       top: { value: SKY_TOP }, mid: { value: SKY_MID }, haze: { value: SKY_HAZE },
       sunCol: { value: SUN_TINT }, sunDir: { value: SUN_DIR },
       clouds: { value: makeCloudTexture() },
+      cloudAmt: { value: 0.82 }, cloudDark: { value: CLOUD_DARK },
+      sunSharp: { value: 1.0 },
     },
     vertexShader: `
       varying vec3 vDir;
@@ -311,15 +335,18 @@ const skyDome = new THREE.Mesh(
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }`,
     fragmentShader: `
-      uniform vec3 top, mid, haze, sunCol, sunDir;
+      uniform vec3 top, mid, haze, sunCol, sunDir, cloudDark;
       uniform sampler2D clouds;
+      uniform float cloudAmt, sunSharp;
       varying vec3 vDir;
       void main() {
         vec3 d = normalize(vDir);
         vec3 c = mix(haze, mid, smoothstep(-0.03, 0.17, d.y));
         c = mix(c, top, smoothstep(0.11, 0.66, d.y));
         float s = max(dot(d, normalize(sunDir)), 0.0);
-        c += sunCol * (pow(s, 4.0) * 0.28 + pow(s, 64.0) * 0.60);
+        // sunSharp goes to nearly nothing under overcast: there is still a
+        // bright patch where the sun is, but no disc and no rim to it
+        c += sunCol * sunSharp * (pow(s, 4.0) * 0.28 + pow(s, 64.0) * 0.60);
 
         // Two cloud layers on a flat sheet overhead, projected the way a real
         // one reads: stretched and crowded at the horizon, big and slow
@@ -330,9 +357,10 @@ const skyDome = new THREE.Mesh(
         float a = texture2D(clouds, cp * 0.150 + vec2(0.17, 0.43)).r;
         float b = texture2D(clouds, cp * 0.052 + vec2(0.66, 0.21)).r;
         float cover = clamp(a * 0.70 + b * 0.62, 0.0, 1.0) * smoothstep(0.005, 0.19, up);
-        // lit from underneath by a sun on the horizon, so the tops go copper
-        vec3 lit = mix(vec3(0.24, 0.19, 0.29), sunCol * 1.30, pow(s, 1.8) * 0.75 + 0.22);
-        c = mix(c, lit, cover * 0.82);
+        // lit from underneath by a low sun, so the tops go copper. Under rain
+        // cloudAmt goes past 1 and the whole sheet closes over.
+        vec3 lit = mix(cloudDark, sunCol * 1.30, pow(s, 1.8) * 0.75 * sunSharp + 0.22);
+        c = mix(c, lit, clamp(cover * cloudAmt, 0.0, 1.0));
 
         gl_FragColor = vec4(c, 1.0);
         #include <tonemapping_fragment>
@@ -347,34 +375,86 @@ scene.add(skyDome);
 // reflect, so the wheels would render black and the paint would be flat — the
 // two things that most give a car away as untextured geometry. A 256x128
 // equirectangular ramp through the same palette, prefiltered so roughness
-// actually blurs it, costs one texture and fixes both.
-{
+// actually blurs it, costs one texture and fixes both. One is prefiltered per
+// set of conditions up front: PMREM is far too slow to run when the weather
+// changes, and three of them are a rounding error of video memory.
+const pmrem = new THREE.PMREMGenerator(renderer);
+function makeEnvMap(stops) {
   const c = document.createElement('canvas');
   c.width = 256; c.height = 128;
   const g = c.getContext('2d');
   const grd = g.createLinearGradient(0, 0, 0, 128);
-  grd.addColorStop(0.00, '#3f63a8');   // zenith
-  grd.addColorStop(0.36, '#b98cb6');
-  grd.addColorStop(0.49, '#ffcaa8');   // the horizon burn, all the way round
-  grd.addColorStop(0.52, '#6b4f3c');   // ground
-  grd.addColorStop(1.00, '#2e2118');
+  grd.addColorStop(0.00, stops[0]);   // zenith
+  grd.addColorStop(0.36, stops[1]);
+  grd.addColorStop(0.49, stops[2]);   // the horizon burn, all the way round
+  grd.addColorStop(0.52, stops[3]);   // ground
+  grd.addColorStop(1.00, stops[4]);
   g.fillStyle = grd; g.fillRect(0, 0, 256, 128);
   const equi = new THREE.CanvasTexture(c);
   equi.colorSpace = THREE.SRGBColorSpace;
   equi.mapping = THREE.EquirectangularReflectionMapping;
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  scene.environment = pmrem.fromEquirectangular(equi).texture;
-  pmrem.dispose();
+  const tex = pmrem.fromEquirectangular(equi).texture;
   equi.dispose();
+  return tex;
 }
 
-// Sky fill from above, warm dirt bounce from below. Dialled back from what it
-// would need to be on its own, because the environment map now carries the fill.
-scene.add(new THREE.HemisphereLight(0x94a8dc, 0x4a3626, 0.5));
+// Sky fill from above, ground bounce from below. Dialled back from what it would
+// need to be on its own, because the environment map now carries the fill.
+const hemi = new THREE.HemisphereLight(0x94a8dc, 0x4a3626, 0.5);
+scene.add(hemi);
 // The sun and its target ride with the car: a directional light aims at its
 // target's position, and we drive thousands of units away from the origin.
 const sun = new THREE.DirectionalLight(0xffb583, 2.5);
 scene.add(sun, sun.target);
+
+// ================= conditions and modes =================
+// A set of conditions is one palette plus the handful of numbers that follow
+// from it. Nothing here is rebuilt when you switch: the sky uniforms and the fog
+// point at the colour objects above, so writing through those regrades the whole
+// scene, and the only pre-built things are one prefiltered environment map each.
+const CONDITIONS = [{
+  name: 'MORNING', blurb: 'CLEAR · SUN BEHIND YOU',
+  stats: 'cold light and hard shadows<br>dry road, and you can see for miles',
+  top: 0x2c6ec4, mid: 0x9fc4e8, haze: 0xe8dcc0, tint: 0xffe9c8,
+  dir: [-0.62, 0.26, -0.74], sunCol: 0xffeacb, sunPower: 3.1,
+  hemiSky: 0xa8c4e8, hemiGround: 0x5c4c36, hemiInt: 0.70,
+  fog: 0.0011, exposure: 1.08, cloudAmt: 0.55, cloudDark: 0x555f75, sunSharp: 1.0,
+  env: ['#2c6ec4', '#9fc4e8', '#e8dcc0', '#6f5f45', '#332c20'],
+  grip: 1.0, wet: 0, ground: 0xffffff, vignette: 'rgba(18,26,40,.38)',
+}, {
+  name: 'EVENING', blurb: 'LOW SUN · LONG SHADOWS',
+  stats: 'the sun sitting on the horizon<br>everything the palette was built for',
+  top: 0x3f63a8, mid: 0xb98cb6, haze: 0xf2aea4, tint: 0xffc79a,
+  dir: [0.40, 0.15, -0.90], sunCol: 0xffb583, sunPower: 2.5,
+  hemiSky: 0x94a8dc, hemiGround: 0x4a3626, hemiInt: 0.50,
+  fog: 0.0016, exposure: 1.15, cloudAmt: 0.82, cloudDark: 0x3d3149, sunSharp: 1.0,
+  env: ['#3f63a8', '#b98cb6', '#ffcaa8', '#6b4f3c', '#2e2118'],
+  grip: 1.0, wet: 0, ground: 0xffffff, vignette: 'rgba(26,10,24,.46)',
+}, {
+  name: 'RAIN', blurb: 'OVERCAST · SLIPPERY',
+  stats: 'wet road, a third less grip<br>the tail will step out on you',
+  top: 0x4a5566, mid: 0x6b7480, haze: 0x8a8f92, tint: 0xb9bec2,
+  // No direction to speak of under a closed sky — high and weak, so the light
+  // is almost all hemisphere and nothing on the car catches a hard highlight.
+  dir: [0.25, 0.62, -0.74], sunCol: 0x9aa4ae, sunPower: 1.1,
+  hemiSky: 0x8b96a4, hemiGround: 0x3a3a36, hemiInt: 1.00,
+  fog: 0.0042, exposure: 1.00, cloudAmt: 1.90, cloudDark: 0x4e545c, sunSharp: 0.15,
+  env: ['#4a5566', '#6b7480', '#8a8f92', '#43443f', '#22231f'],
+  grip: 0.72, wet: 1, ground: 0x8f948c, vignette: 'rgba(12,16,20,.52)',
+}];
+const envMaps = CONDITIONS.map(c => makeEnvMap(c.env));
+pmrem.dispose();
+
+// A mode is what the world is made of and what else is on the road. Free drive
+// is the empty moor this started as; the other two add to it rather than
+// replacing it, so a chunk builder that already streams terrain keeps working.
+const MODES = [
+  { name: 'FREE DRIVE', blurb: 'EMPTY ROAD', stats: 'nobody out here but you<br>the original, and still the best one', traffic: 0, city: false },
+  { name: 'TRAFFIC', blurb: 'SHARED ROAD', stats: 'oncoming and overtaking<br>hit one and you will know about it', traffic: 18, city: false },
+  { name: 'CITY', blurb: 'BUILT UP', stats: 'blocks, kerbs, street lighting<br>and traffic in both directions', traffic: 14, city: true },
+];
+let condIndex = 1, modeIndex = 0;
+let CONDITION_GRIP = 1;
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
@@ -490,6 +570,71 @@ const terrainMat = new THREE.MeshLambertMaterial({
   map: makeGroundTexture(), vertexColors: true, side: THREE.DoubleSide,
 });
 
+// ---- city ----
+// One texture holds an 8x8 grid of bays — wall, window, sill — and the UVs on
+// every building face are scaled by that face's real size in metres. A tower and
+// a two-storey shop therefore get windows the same SIZE rather than the same
+// COUNT, which is most of the difference between a city and a row of scaled
+// boxes. The emissive map is the same grid with only the lit windows on it, so
+// the two agree by construction rather than by luck.
+const BAY = 3.2, FACADE_TILE = BAY * 8;
+function makeFacade() {
+  const S = 256, n = 8, cell = S / n;
+  const lit = [];
+  for (let i = 0; i < n * n; i++) lit.push(hash2(i * 7 + 3, i * 13 + 5) > 0.58);
+  const draw = glow => {
+    const c = document.createElement('canvas');
+    c.width = c.height = S;
+    const g = c.getContext('2d');
+    g.fillStyle = glow ? '#000000' : '#43444a';
+    g.fillRect(0, 0, S, S);
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+      const on = lit[y * n + x];
+      if (glow && !on) continue;
+      g.fillStyle = on ? '#ffdca6' : '#20232a';
+      g.fillRect(x * cell + cell * 0.17, y * cell + cell * 0.18, cell * 0.66, cell * 0.54);
+    }
+    if (!glow) {                       // a shadow line under every floor slab
+      g.fillStyle = 'rgba(0,0,0,.28)';
+      for (let y = 0; y < n; y++) g.fillRect(0, y * cell + cell * 0.84, S, 2);
+    }
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    return t;
+  };
+  return { map: draw(false), glow: draw(true) };
+}
+const facade = makeFacade();
+const buildingMat = new THREE.MeshLambertMaterial({
+  map: facade.map, emissiveMap: facade.glow, emissive: 0xffffff,
+  emissiveIntensity: 0.9, vertexColors: true,
+});
+const kerbMat = new THREE.MeshLambertMaterial({ color: 0x8e8b84, side: THREE.DoubleSide });
+const poleMat = new THREE.MeshLambertMaterial({ color: 0x33353a });
+const lampMat = new THREE.MeshLambertMaterial({ color: 0xffe0b0, emissive: 0xffc98a, emissiveIntensity: 1.6 });
+const poleGeo = new THREE.CylinderGeometry(0.07, 0.10, 7.4, 6);
+const lampGeo = new THREE.BoxGeometry(0.30, 0.13, 0.70);
+
+// A box whose UVs are its real size in metres over one texture tile, so window
+// bays stay 3.2 m across whatever shape the building is.
+function buildingBox(w, h, d, tint) {
+  const g = new THREE.BoxGeometry(w, h, d);
+  const uv = g.attributes.uv.array;
+  // BoxGeometry emits faces in the order +x -x +y -y +z -z, four vertices each
+  const spans = [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]];
+  for (let f = 0; f < 6; f++) for (let v = 0; v < 4; v++) {
+    const o = (f * 4 + v) * 2;
+    uv[o] *= spans[f][0] / FACADE_TILE;
+    uv[o + 1] *= spans[f][1] / FACADE_TILE;
+  }
+  const col = new Float32Array(g.attributes.position.count * 3);
+  for (let i = 0; i < col.length; i += 3) { col[i] = tint.r; col[i + 1] = tint.g; col[i + 2] = tint.b; }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return g;
+}
+
 // soft radial blob, reused for the contact shadow and the skid marks
 function makeBlobTexture(inner, outer) {
   const c = document.createElement('canvas');
@@ -523,7 +668,7 @@ const treeGeo = (() => {
   upper.translate(0, 3.40, 0);
   return mergeGeos([trunk, lower, upper]);
 })();
-[bushGeo, rockGeo, postGeo, capGeo, treeGeo].forEach(g => sharedGeo.add(g));
+[bushGeo, rockGeo, postGeo, capGeo, treeGeo, poleGeo, lampGeo].forEach(g => sharedGeo.add(g));
 const bushMat = new THREE.MeshLambertMaterial({ flatShading: true });
 const rockMat = new THREE.MeshLambertMaterial({ color: 0x6d6459, flatShading: true });
 const postMat = new THREE.MeshLambertMaterial({ color: 0xb9b2a6 });
@@ -618,8 +763,9 @@ function buildChunk(ci) {
   }
 
   const rnd = mulberry32(ci * 2654435761 + 7);
+  const CITY = MODES[modeIndex].city;
 
-  { // scrub — the whole chunk's vegetation in one draw call
+  if (!CITY) { // scrub — the whole chunk's vegetation in one draw call
     const im = new THREE.InstancedMesh(bushGeo, bushMat, BUSHES);
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
     const sc = new THREE.Vector3(), p3 = new THREE.Vector3(), col = new THREE.Color();
@@ -653,8 +799,9 @@ function buildChunk(ci) {
     group.add(im);
   }
 
-  { // Trees — well back from the verge, in loose stands rather than scattered
-    // evenly, because nothing on a hillside grows on a uniform distribution.
+  if (!CITY) { // Trees — well back from the verge, in loose stands rather than
+    // scattered evenly, because nothing on a hillside grows on a uniform
+    // distribution.
     const TREES = 72;
     const im = new THREE.InstancedMesh(treeGeo, treeMat, TREES);
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
@@ -688,7 +835,7 @@ function buildChunk(ci) {
     group.add(im);
   }
 
-  { // boulders — sparse, and the only thing out here you can actually hit
+  if (!CITY) { // boulders — sparse, and the only thing out here you can hit
     for (let t = 0; t < 5; t++) {
       const p = pts[i0 + Math.floor(rnd() * CHUNK)];
       const side = rnd() < 0.5 ? -1 : 1;
@@ -705,7 +852,7 @@ function buildChunk(ci) {
     }
   }
 
-  for (let k = 0; k < CHUNK; k += 16) { // marker posts
+  if (!CITY) for (let k = 0; k < CHUNK; k += 16) { // marker posts
     const p = pts[i0 + k];
     const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
     for (const side of [-1, 1]) {
@@ -715,6 +862,83 @@ function buildChunk(ci) {
       cap.position.set(post.position.x, p.y + 0.89, post.position.z);
       group.add(post, cap);
     }
+  }
+
+  if (CITY) {
+    // Blocks down both sides, each rotated to sit square to the road. They are
+    // merged per chunk rather than instanced because instancing would force one
+    // box geometry, and one box geometry means one set of UVs — which is exactly
+    // the thing buildingBox() exists to avoid.
+    const shells = [], poles = [], lamps = [];
+    const tint = new THREE.Color();
+    for (let k = 1; k < CHUNK; k += 3 + Math.floor(rnd() * 3)) {
+      const p = pts[i0 + k];
+      const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
+      for (const side of [-1, 1]) {
+        if (rnd() < 0.12) continue;                       // the odd gap or side street
+        const along = 9 + rnd() * 13, deep = 11 + rnd() * 15;
+        // squared so most of the skyline is low and the towers are occasional
+        const tall = 7 + rnd() * rnd() * 34;
+        const set = 10.5 + rnd() * 3;
+        const off = set + deep / 2;
+        const x = p.x + rx * side * off, z = p.z + rz * side * off;
+        tint.setHSL(0.07 + rnd() * 0.10, 0.05 + rnd() * 0.10, 0.42 + rnd() * 0.26, THREE.SRGBColorSpace);
+        const b = buildingBox(along, tall, deep, tint);
+        b.rotateY(Math.PI / 2 - p.heading);
+        // sunk a metre so no gap opens under it wherever the ground still rolls
+        b.translate(x, terrainY(p.y, x, z, off) + tall / 2 - 1.0, z);
+        shells.push(b);
+        // Solid, on the same list the boulders use. A circle is a poor fit for a
+        // building, but it only has to stop you driving through one, and at 12 m
+        // from the centreline the circle never reaches the carriageway.
+        solids.push({ x, z, r: (along + deep) / 4 });
+      }
+    }
+    group.add(new THREE.Mesh(mergeGeos(shells, ['position', 'normal', 'uv', 'color']), buildingMat));
+
+    // Kerbs: a raised strip either side, which is what actually tells you where
+    // the carriageway ends once there is no verge to read.
+    for (const side of [-1, 1]) {
+      const rows = CHUNK + 1;
+      const pos = new Float32Array(rows * 12), idx = [];
+      for (let k = 0; k < rows; k++) {
+        const p = pts[i0 + k];
+        const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
+        const inner = HALF + 0.05, outer = HALF + 2.6;
+        const y = p.y + 0.07;
+        pos.set([
+          p.x + rx * side * inner, y, p.z + rz * side * inner,          // road edge
+          p.x + rx * side * inner, y + 0.15, p.z + rz * side * inner,   // kerb face
+          p.x + rx * side * outer, y + 0.17, p.z + rz * side * outer,   // pavement
+          p.x + rx * side * outer, y - 0.30, p.z + rz * side * outer,   // skirt
+        ], k * 12);
+        if (k < rows - 1) {
+          const a = k * 4;
+          for (let e = 0; e < 3; e++) idx.push(a + e, a + e + 1, a + e + 4, a + e + 1, a + e + 5, a + e + 4);
+        }
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      geo.setIndex(idx); geo.computeVertexNormals();
+      group.add(new THREE.Mesh(geo, kerbMat));
+    }
+
+    for (let k = 4; k < CHUNK; k += 12) {   // street lighting, alternating sides
+      const p = pts[i0 + k];
+      const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
+      const side = (k / 12 | 0) % 2 ? 1 : -1;
+      const x = p.x + rx * side * 7.4, z = p.z + rz * side * 7.4;
+      const base = p.y + 0.24;
+      const pole = poleGeo.clone(); pole.translate(x, base + 3.7, z);
+      poles.push(pole);
+      // the head reaches back out over the carriageway, as they do
+      const head = lampGeo.clone();
+      head.rotateY(Math.PI / 2 - p.heading);
+      head.translate(x - rx * side * 0.9, base + 7.3, z - rz * side * 0.9);
+      lamps.push(head);
+    }
+    group.add(new THREE.Mesh(mergeGeos(poles), poleMat));
+    group.add(new THREE.Mesh(mergeGeos(lamps), lampMat));
   }
 
   group.userData.solids = solids;
@@ -757,26 +981,30 @@ car.add(chassis, axles);
 // draw calls a frame for something you mostly read as a silhouette, so anything
 // sharing a material gets welded into one buffer first. Positions and normals
 // only: none of these materials carry a map.
-function mergeGeos(list) {
+function mergeGeos(list, attrs) {
+  attrs = attrs || ['position', 'normal'];
+  if (!list.length) return new THREE.BufferGeometry();
   let vc = 0, ic = 0;
   for (const g of list) {
     vc += g.attributes.position.count;
     ic += g.index ? g.index.count : g.attributes.position.count;
   }
-  const pos = new Float32Array(vc * 3), nrm = new Float32Array(vc * 3), idx = new Uint32Array(ic);
+  const out = new THREE.BufferGeometry();
+  const buf = attrs.map(a => {
+    const size = list[0].attributes[a].itemSize;
+    return { a, size, data: new Float32Array(vc * size) };
+  });
+  const idx = new Uint32Array(ic);
   let vo = 0, io = 0;
   for (const g of list) {
     const n = g.attributes.position.count;
-    pos.set(g.attributes.position.array, vo * 3);
-    nrm.set(g.attributes.normal.array, vo * 3);
+    for (const b of buf) b.data.set(g.attributes[b.a].array, vo * b.size);
     if (g.index) for (let k = 0; k < g.index.count; k++) idx[io++] = g.index.array[k] + vo;
     else for (let k = 0; k < n; k++) idx[io++] = k + vo;
     vo += n;
     g.dispose();
   }
-  const out = new THREE.BufferGeometry();
-  out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  out.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+  for (const b of buf) out.setAttribute(b.a, new THREE.BufferAttribute(b.data, b.size));
   out.setIndex(new THREE.BufferAttribute(idx, 1));
   out.computeBoundingSphere();
   return out;
@@ -1108,15 +1336,6 @@ let CAR_WB = 2.62, CAR_TRACK = 0.80, CAR_AXLE = 1.31;
 let MASS = 1100, PEAK_TQ = 430;
 
 const pickEl = document.getElementById('pick');
-const pickCards = document.getElementById('pickcards');
-CARS.forEach((s, i) => {
-  const b = document.createElement('button');
-  b.className = 'pcard';
-  b.innerHTML = `<b>${s.name}</b><i>${s.blurb}</i><em>${s.stats}</em>`;
-  b.addEventListener('click', () => { selectCar(i); closePicker(); });
-  pickCards.appendChild(b);
-});
-
 function selectCar(i) {
   carIndex = i;
   const s = CARS[i];
@@ -1124,8 +1343,6 @@ function selectCar(i) {
   CAR_WB = s.wb; CAR_TRACK = s.track; CAR_AXLE = s.axle;
   MASS = s.mass; PEAK_TQ = s.torque;
   shadow.scale.set(s.shadow[0] / 2.9, s.shadow[1] / 5.5, 1);
-  const cards = pickCards.children;
-  for (let k = 0; k < cards.length; k++) cards[k].className = k === i ? 'pcard on' : 'pcard';
 }
 function openPicker() {
   picking = true;
@@ -1137,7 +1354,265 @@ function closePicker() {
   pickEl.style.display = 'none';
   initAudio();                              // this counts as the user gesture
 }
-selectCar(0);
+
+// Conditions are a palette and the handful of numbers that follow from it.
+// Nothing is rebuilt: the sky uniforms and the fog hold references to the colour
+// objects, so writing through them regrades the scene in place, and the only
+// per-condition asset — the prefiltered environment map — was made up front.
+function applyConditions(i) {
+  condIndex = i;
+  const c = CONDITIONS[i], city = MODES[modeIndex].city;
+  SKY_TOP.setHex(c.top); SKY_MID.setHex(c.mid); SKY_HAZE.setHex(c.haze);
+  SUN_TINT.setHex(c.tint); CLOUD_DARK.setHex(c.cloudDark);
+  SUN_DIR.set(c.dir[0], c.dir[1], c.dir[2]).normalize();
+  const u = skyDome.material.uniforms;
+  u.cloudAmt.value = c.cloudAmt; u.sunSharp.value = c.sunSharp;
+  sun.color.setHex(c.sunCol); sun.intensity = c.sunPower;
+  hemi.color.setHex(c.hemiSky); hemi.groundColor.setHex(c.hemiGround); hemi.intensity = c.hemiInt;
+  scene.fog.color.copy(SKY_HAZE);
+  // A city closes the horizon in whatever the weather — you cannot see a
+  // kilometre down a street, and the moor beyond the blocks should not be there.
+  scene.fog.density = c.fog * (city ? 2.2 : 1);
+  scene.environment = envMaps[i];
+  renderer.toneMappingExposure = c.exposure;
+  terrainMat.color.setHex(c.ground);
+  // Wet tarmac is darker AND far glossier — losing the diffuse and gaining a
+  // reflection at once is the whole reading of a wet road.
+  for (const m of roadMats) {
+    m.roughness = c.wet ? 0.16 : 0.82;
+    m.color.setHex(c.wet ? 0x5f6266 : 0xffffff);
+    m.envMapIntensity = c.wet ? 1.7 : 1.0;
+  }
+  // Lights come on when it is dim enough to want them.
+  buildingMat.emissiveIntensity = c.exposure > 1.1 ? 0.18 : 0.95;
+  lampMat.emissiveIntensity = c.exposure > 1.1 ? 0.35 : 1.7;
+  rainMesh.visible = !!c.wet;
+  CONDITION_GRIP = c.grip;
+  document.getElementById('grade').style.background =
+    'radial-gradient(ellipse 78% 68% at 50% 46%, rgba(0,0,0,0) 40%, ' + c.vignette + ' 100%)';
+}
+
+// A mode changes what the world is made of, so every chunk has to go. The car
+// stays where it is: the spline is the same road either way.
+function applyMode(i) {
+  modeIndex = i;
+  RELIEF = MODES[i].city ? 0.22 : 1;
+  for (const ci of [...chunks.keys()]) disposeChunk(ci);
+  lastChunk = -9999;
+  traffic.length = 0;
+  applyConditions(condIndex);      // fog and lighting depend on the mode too
+}
+
+// Three rows of the same kind of choice, so one table drives all of them: up and
+// down move between rows, left and right along one. Every setter takes effect
+// the moment you land on it, and the scene behind the overlay is live, so you
+// are choosing by looking at the thing rather than at a description of it.
+const PICK = [
+  { label: 'CAR', list: CARS, get: () => carIndex, set: selectCar },
+  { label: 'MODE', list: MODES, get: () => modeIndex, set: applyMode },
+  { label: 'WEATHER', list: CONDITIONS, get: () => condIndex, set: applyConditions },
+];
+let pickRow = 0;
+{
+  const rowsEl = document.getElementById('pickrows');
+  PICK.forEach((row, r) => {
+    const el = document.createElement('div');
+    el.className = 'prow';
+    const lab = document.createElement('div');
+    lab.className = 'plabel';
+    lab.textContent = row.label;
+    const cards = document.createElement('div');
+    cards.className = 'pcards';
+    row.list.forEach((item, i) => {
+      const b = document.createElement('button');
+      b.className = 'pcard';
+      b.innerHTML = '<b>' + item.name + '</b><i>' + item.blurb + '</i><em>' + item.stats + '</em>';
+      b.addEventListener('click', () => { pickRow = r; row.set(i); paintPicker(); });
+      cards.appendChild(b);
+    });
+    el.appendChild(lab); el.appendChild(cards);
+    rowsEl.appendChild(el);
+    row.el = el; row.cards = cards;
+  });
+}
+function paintPicker() {
+  PICK.forEach((row, r) => {
+    row.el.className = r === pickRow ? 'prow active' : 'prow';
+    const sel = row.get();
+    for (let i = 0; i < row.cards.children.length; i++)
+      row.cards.children[i].className = i === sel ? 'pcard on' : 'pcard';
+  });
+}
+function pickKey(code) {
+  const row = PICK[pickRow], n = row.list.length;
+  if (code === 'ArrowLeft') row.set((row.get() + n - 1) % n);
+  else if (code === 'ArrowRight') row.set((row.get() + 1) % n);
+  else if (code === 'ArrowUp') pickRow = (pickRow + PICK.length - 1) % PICK.length;
+  else if (code === 'ArrowDown') pickRow = (pickRow + 1) % PICK.length;
+  else return false;
+  paintPicker();
+  return true;
+}
+
+
+// ================= traffic =================
+// One generic saloon, drawn as four instanced meshes: body, dark trim, and the
+// two lamp clusters. Four draw calls for the whole road however many cars are on
+// it, and the per-instance colour is the only thing that differs between them.
+const TRAFFIC_MAX = 22;
+const traffic = [];
+const trafficMeshes = [];
+{
+  const sec = (y, z) => (0.74 + 0.26 * smoothstep(0.28, 0.70, y) - 0.24 * smoothstep(0.94, 1.22, y))
+                      * (1 - 0.16 * smoothstep(1.30, 2.10, Math.abs(z)));
+  const shell = (points, depth, bevel) => {
+    const geo = refine(extrude(points, depth, bevel), bevel ? 2 : 1);
+    const p = geo.attributes.position;
+    for (let i = 0; i < p.count; i++) p.setX(i, p.getX(i) * sec(p.getY(i), p.getZ(i)));
+    geo.computeVertexNormals();
+    return geo;
+  };
+  const bodyGeo = shell([
+    [ 2.05, 0.30], [ 2.10, 0.60], [ 1.56, 0.72], [ 1.02, 0.78],
+    [ 0.44, 1.16], [-0.62, 1.20], [-1.28, 1.10], [-1.66, 0.86],
+    [-2.02, 0.78], [-2.08, 0.48], [-1.98, 0.28], [ 0.00, 0.24],
+  ], 1.62, true);
+
+  const dk = [shell([[0.98, 0.88], [0.46, 1.28], [-0.64, 1.32], [-1.32, 1.16], [-1.22, 1.04], [0.88, 0.78]], 1.86, false)];
+  for (const [wx, wz] of [[-0.76, -1.30], [0.76, -1.30], [-0.76, 1.30], [0.76, 1.30]]) {
+    const t = new THREE.CylinderGeometry(0.32, 0.32, 0.24, 12);
+    t.rotateZ(Math.PI / 2); t.translate(wx, 0.32, wz);
+    dk.push(t);
+  }
+  const lampBox = (w, h, d, x, y, z) => { const g = new THREE.BoxGeometry(w, h, d); g.translate(x, y, z); return g; };
+  const reds = [lampBox(0.34, 0.13, 0.06, -0.56, 0.76, 2.10), lampBox(0.34, 0.13, 0.06, 0.56, 0.76, 2.10)];
+  const whites = [lampBox(0.32, 0.12, 0.06, -0.58, 0.64, -2.14), lampBox(0.32, 0.12, 0.06, 0.58, 0.64, -2.14)];
+
+  const bodyMat = new THREE.MeshLambertMaterial({});
+  const parts = [
+    [bodyGeo, bodyMat, true],
+    [mergeGeos(dk), new THREE.MeshStandardMaterial({ color: 0x15171b, roughness: 0.5, metalness: 0.4 }), false],
+    [mergeGeos(reds), new THREE.MeshStandardMaterial({ color: 0x3a0709, emissive: 0xff2410, emissiveIntensity: 1.5 }), false],
+    [mergeGeos(whites), new THREE.MeshStandardMaterial({ color: 0x2a2a26, emissive: 0xfff0cf, emissiveIntensity: 1.2 }), false],
+  ];
+  const col = new THREE.Color();
+  for (const [geo, mat, tinted] of parts) {
+    const im = new THREE.InstancedMesh(geo, mat, TRAFFIC_MAX);
+    im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    im.frustumCulled = false;
+    im.count = 0;
+    if (tinted) for (let i = 0; i < TRAFFIC_MAX; i++) {
+      // saturated cars are rare in real traffic — mostly white, grey, black
+      const r = hash2(i * 3 + 1, i * 5 + 2);
+      if (r < 0.62) col.setHSL(0.08 + r * 0.4, 0.03, 0.10 + r * 0.85, THREE.SRGBColorSpace);
+      else col.setHSL(r * 1.7 % 1, 0.45, 0.20 + r * 0.2, THREE.SRGBColorSpace);
+      im.setColorAt(i, col);
+    }
+    if (tinted) im.instanceColor.needsUpdate = true;
+    scene.add(im);
+    trafficMeshes.push(im);
+  }
+}
+
+// Where a car goes when it has fallen off the end of the world. Oncoming cars
+// always arrive from ahead; same-direction cars come from whichever end they
+// will reach you from, which depends on whether they are quicker than you.
+function placeTrafficCar(t, first) {
+  t.dir = Math.random() < 0.46 ? -1 : 1;
+  t.speed = 15 + Math.random() * 15;
+  t.lane = t.dir > 0 ? 2.55 : -2.55;
+  const ahead = t.dir < 0 || Math.random() < 0.55;
+  t.s = sEst + (ahead ? 200 + Math.random() * 260 : -(120 + Math.random() * 150));
+  if (first) t.s = sEst + (Math.random() - 0.3) * 500;
+  t.s = Math.max(20, t.s);
+}
+
+const trM = new THREE.Matrix4(), trQ = new THREE.Quaternion(), trE = new THREE.Euler(0, 0, 0, 'YXZ');
+const trP = new THREE.Vector3(), trS = new THREE.Vector3(1, 1, 1);
+function updateTraffic(dt, fx, fz, rx, rz) {
+  const want = MODES[modeIndex].traffic;
+  while (traffic.length < want) { const t = {}; placeTrafficCar(t, true); traffic.push(t); }
+  traffic.length = Math.min(traffic.length, want);
+  for (const m of trafficMeshes) m.count = traffic.length;
+  if (!traffic.length) return;
+
+  for (let i = 0; i < traffic.length; i++) {
+    const t = traffic[i];
+    t.s += t.dir * t.speed * dt;
+    const rel = t.s - sEst;
+    if (rel > 560 || rel < -320) placeTrafficCar(t, false);
+
+    const p = getPose(t.s);
+    // prx/prz is the ROAD's right vector; rx/rz above is the player car's, and
+    // the collision below needs the player's to know which way it was shoved.
+    const prx = Math.cos(p.heading), prz = Math.sin(p.heading);
+    const x = p.x + prx * t.lane, z = p.z + prz * t.lane;
+    // pitch off the road's own gradient, or every car on a hill floats
+    const slope = (getPose(t.s + 4).y - getPose(t.s - 4).y) / 8;
+    trP.set(x, p.y + 0.07, z);
+    trE.set(Math.atan(slope) * t.dir, -(p.heading + (t.dir > 0 ? 0 : Math.PI)), 0);
+    trM.compose(trP, trQ.setFromEuler(trE), trS);
+    for (const m of trafficMeshes) m.setMatrixAt(i, trM);
+
+    // Collision. Same shape as the boulder response but heavier, because being
+    // hit by a car that is also moving is a different order of event.
+    const dx = pos.x - x, dz = pos.z - z;
+    const dd = dx * dx + dz * dz;
+    if (dd < 7.3 && dd > 1e-4) {
+      const dl = Math.sqrt(dd), nx = dx / dl, nz = dz / dl;
+      pos.x = x + nx * 2.7; pos.z = z + nz * 2.7;
+      // Split the push into the car's own axes before applying it — a world-space
+      // shove into vLat would send you sideways in whatever direction north is.
+      const nLong = nx * fx + nz * fz, nLat = nx * rx + nz * rz;
+      vLong = vLong * 0.42 + nLong * 4;
+      vLat = vLat * 0.40 + nLat * 4;
+      yawRate += nLat * 0.8;
+      camShake = Math.min(1.3, camShake + 0.9);
+      t.speed *= 0.55;
+    }
+  }
+  for (const m of trafficMeshes) m.instanceMatrix.needsUpdate = true;
+}
+
+// ================= rain =================
+// Line segments, not sprites. A raindrop at 25 m/s is a streak, and a vertical
+// streak looks the same from every horizontal direction, so there is nothing to
+// billboard and nothing to sort. One draw call for the lot, and the field is a
+// box that rides with the camera and wraps, so you never reach the edge of it.
+const RAIN_N = 1500, RAIN_R = 32, RAIN_H = 22;
+const rainPos = new Float32Array(RAIN_N * 6);
+const rainSeed = new Float32Array(RAIN_N * 3);
+for (let i = 0; i < RAIN_N; i++) {
+  const a = Math.random() * 6.283, r = Math.sqrt(Math.random()) * RAIN_R;
+  rainSeed[i * 3] = Math.cos(a) * r;
+  rainSeed[i * 3 + 1] = Math.random() * RAIN_H;
+  rainSeed[i * 3 + 2] = Math.sin(a) * r;
+}
+const rainGeo = new THREE.BufferGeometry();
+rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPos, 3));
+const rainMesh = new THREE.LineSegments(rainGeo,
+  new THREE.LineBasicMaterial({ color: 0xd2dae2, transparent: true, opacity: 0.30, fog: false }));
+rainMesh.frustumCulled = false;
+rainMesh.visible = false;
+scene.add(rainMesh);
+let rainFall = 0;
+function updateRain(dt, vx, vz) {
+  if (!rainMesh.visible) return;
+  rainFall = (rainFall + dt * 27) % RAIN_H;
+  const cx = camera.position.x, cy = camera.position.y - 5, cz = camera.position.z;
+  // The streaks lean back into the direction of travel, which is the only cue
+  // that says how fast you are going through it.
+  const lx = clamp(-vx * 0.021, -1.1, 1.1), lz = clamp(-vz * 0.021, -1.1, 1.1);
+  for (let i = 0; i < RAIN_N; i++) {
+    const o = i * 3, q = i * 6;
+    let y = rainSeed[o + 1] - rainFall;
+    if (y < 0) y += RAIN_H;
+    const x = cx + rainSeed[o], z = cz + rainSeed[o + 2];
+    rainPos[q] = x;           rainPos[q + 1] = cy + y;          rainPos[q + 2] = z;
+    rainPos[q + 3] = x + lx;  rainPos[q + 4] = cy + y + 0.62;   rainPos[q + 5] = z + lz;
+  }
+  rainGeo.attributes.position.needsUpdate = true;
+}
 
 // skid marks (pooled)
 const SKIDS = 300;
@@ -1192,10 +1667,8 @@ addEventListener('keydown', e => {
   // While the picker is up nothing else gets a look at the keyboard, or holding
   // an arrow to browse cars would also be holding a lock of steering on.
   if (picking) {
-    if (e.code === 'ArrowLeft') selectCar((carIndex + CARS.length - 1) % CARS.length);
-    else if (e.code === 'ArrowRight') selectCar((carIndex + 1) % CARS.length);
-    else if (e.code === 'Enter' || e.code === 'Space' || e.code === 'Escape') closePicker();
-    else return;
+    if (e.code === 'Enter' || e.code === 'Space' || e.code === 'Escape') closePicker();
+    else if (!pickKey(e.code)) return;
     e.preventDefault();
     return;
   }
@@ -1404,6 +1877,14 @@ let odo = 0, autoShiftLock = 0, lastChunk = -9999;
 const MAX_DPR = Math.min(devicePixelRatio, 2);
 let dpr = MAX_DPR, frameAcc = 0, frames = 0;
 
+// Everything exists by now, so the world can be dressed. applyMode rebuilds the
+// chunks and applyConditions regrades them; both are cheap enough to run again
+// any time you open the picker.
+selectCar(0);
+applyMode(0);
+applyConditions(1);
+paintPicker();
+
 renderer.setAnimationLoop(() => {
   // Clamped at BOTH ends. Clock returns exactly 0 for the first frame, and
   // several forces below are written as "whatever it takes to stop, but no more
@@ -1467,7 +1948,10 @@ renderer.setAnimationLoop(() => {
   const gp = probe(pos.x, pos.z, sEst);
   sEst = gp.s; dEst = gp.d; groundY = gp.y;
   const onRoad = Math.abs(dEst) < HALF + 0.4;
-  const grip = (onRoad ? 1.35 : 0.82) * (airborne ? 0 : 1);
+  // Wet tarmac is the one condition that changes how the car drives rather than
+  // how it looks, and it belongs here rather than in the tyre model: less grip is
+  // less grip whether it is going into traction, braking or cornering.
+  const grip = (onRoad ? 1.35 : 0.82) * CONDITION_GRIP * (airborne ? 0 : 1);
   const rollRes = onRoad ? 0.012 : 0.055;
 
   // ---------- engine + clutch ----------
@@ -1655,6 +2139,12 @@ renderer.setAnimationLoop(() => {
       if (ci < carChunk - BEHIND || ci > carChunk + AHEAD) disposeChunk(ci);
   }
 
+  // ---------- traffic ----------
+  // After the chunk streaming, so a car that has just been recycled 500 m ahead
+  // lands on a piece of road that exists, and before the camera, so nothing is
+  // drawn a frame behind where it actually is.
+  updateTraffic(dt, fx, fz, rx, rz);
+
   // ---------- car transform ----------
   car.position.copy(pos);
   car.rotation.y = -yaw;
@@ -1742,6 +2232,8 @@ renderer.setAnimationLoop(() => {
   skyDome.position.copy(camera.position);
   sun.target.position.copy(pos);
   sun.position.copy(pos).addScaledVector(SUN_DIR, 900);
+  // after the camera has moved, since the whole field is hung off it
+  updateRain(dt, fx * vLong + rx * vLat, fz * vLong + rz * vLat);
 
   // ---------- audio ----------
   if (audioCtx && engGain) {
