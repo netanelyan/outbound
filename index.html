@@ -242,11 +242,14 @@ const scene = new THREE.Scene();
 // Furthest geometry is about 1.2 km (5 chunks ahead, 760 m of terrain to the
 // side). near/far is kept as tight as that allows — the ratio is what sets depth
 // precision, and 0.1/4000 buys nothing but z-fighting on distant hills.
-// 52 degrees, not the 62 this started with. A wide lens makes the car small and
-// the hills enormous — it is the standard way to make a scene feel like a map of
-// itself. Pulling the chase camera in to match (see below) keeps the same amount
-// of road visible while roughly half again as much of the frame is car.
-const FOV = 52;
+// 44 degrees, not the 62 this started with. Two levers matter and they do
+// different jobs: how CLOSE the camera sits sets how big the car is against the
+// hills behind it, since only the car gets nearer; how WIDE the lens is then
+// sets how much of the frame that becomes. Measured by projecting the body
+// through the camera at 120 km/h, the car went from 8% of the screen width to
+// 29% — and most of that was not the lens or the distance at all, but the
+// follow lag documented down in the camera block.
+const FOV = 44;
 const camera = new THREE.PerspectiveCamera(FOV, innerWidth / innerHeight, 0.35, 2400);
 
 // Dusk palette. Everything else in the file is graded against these four values —
@@ -1373,6 +1376,7 @@ setTimeout(() => { document.getElementById('help').style.opacity = 0.28; }, 1400
 const camPos = new THREE.Vector3();
 const camLook = new THREE.Vector3();
 const camTgt = new THREE.Vector3();
+const camOff = new THREE.Vector3();   // chase camera, relative to the car
 let camInit = false, fovNow = FOV;
 
 // ================= loop =================
@@ -1681,19 +1685,26 @@ renderer.setAnimationLoop(() => {
     camLook.set(pos.x + fx * 20, pos.y + 1.5, pos.z + fz * 20);
     camera.position.copy(camPos);
   } else {
-    const back = camMode === 0 ? 6.9 : 12;
-    const up = camMode === 0 ? 2.7 : 5.2;
+    const back = camMode === 0 ? 7.2 : 12;
+    const up = camMode === 0 ? 2.85 : 5.0;
     // trail behind the direction of travel, GTA style
     const travel = Math.atan2(fx * vLong + rx * vLat, fz * vLong + rz * vLat);
     const blend = smoothstep(2, 14, speedAbs) * 0.55;
     const camYawX = fx * (1 - blend) + Math.sin(travel) * blend;
     const camYawZ = fz * (1 - blend) + Math.cos(travel) * blend;
     const tx = pos.x - camYawX * back, tz = pos.z - camYawZ * back;
-    camTgt.set(tx, Math.max(groundY, probe(tx, tz, sEst).y) + up, tz);
-    if (!camInit) { camPos.copy(camTgt); camInit = true; }
-    camPos.lerp(camTgt, 1 - Math.exp(-dt * (4 + speedAbs * 0.06)));
-    camera.position.copy(camPos);
-    camLook.set(pos.x + fx * 4.5, pos.y + 1.15, pos.z + fz * 4.5);
+    // Smooth the camera's OFFSET from the car, not its position in the world.
+    // A first-order lag applied to a target that is itself travelling at 40 m/s
+    // settles a steady v*tau behind where it was asked to sit — six metres at
+    // speed — so the car shrank into the distance exactly when you were going
+    // fast enough to want to look at it. Relative to the car the target is very
+    // nearly constant, so smoothing it costs nothing in lag while still damping
+    // the swing as the car rotates or crests a rise.
+    camTgt.set(tx - pos.x, Math.max(groundY, probe(tx, tz, sEst).y) + up - pos.y, tz - pos.z);
+    if (!camInit) { camOff.copy(camTgt); camInit = true; }
+    camOff.lerp(camTgt, 1 - Math.exp(-dt * 6));
+    camera.position.copy(pos).add(camOff);
+    camLook.set(pos.x + fx * 4.0, pos.y + 1.05, pos.z + fz * 4.0);
   }
   if (camShake > 0.01) {
     camera.position.x += (Math.random() - 0.5) * camShake * 0.5;
