@@ -165,7 +165,11 @@ import * as THREE from 'three';
 // ================= world constants =================
 const SEG = 3, CHUNK = 60;
 // Lane width, and how far apart the road decides to be a different road.
-const LANE_W = 3.6, LANE_BLK = 620;
+// 4.2 m. Real lanes are 3.65 and these cars are up to 2.34 m across the mirrors,
+// which left barely a metre of air either side and made every road feel like a
+// squeeze. Everything downstream is expressed in lane widths, so this widens the
+// tarmac, the markings, the traffic lanes and the respawn point together.
+const LANE_W = 4.2, LANE_BLK = 620;
 const AHEAD = 5, BEHIND = 2;
 
 // ================= noise / helpers =================
@@ -532,13 +536,21 @@ pmrem.dispose();
 // A mode is what the world is made of and what else is on the road. Free drive
 // is the empty moor this started as; the other two add to it rather than
 // replacing it, so a chunk builder that already streams terrain keeps working.
-const MODES = [
-  { name: 'FREE DRIVE', blurb: 'EMPTY ROAD', stats: 'nobody out here but you<br>the original, and still the best one', traffic: 0, city: false },
-  { name: 'TRAFFIC', blurb: 'SHARED ROAD', stats: 'oncoming and overtaking<br>hit one and you will know about it', traffic: 18, city: false },
-  { name: 'CITY', blurb: 'BUILT UP', stats: 'blocks, kerbs, street lighting<br>and traffic in both directions', traffic: 14, city: true },
-  { name: 'FOREST', blurb: 'CLOSE COUNTRY', stats: 'trees right up to the verge<br>dark, tight, and you cannot see past them', traffic: 10, city: false, forest: true },
+// What the world is made of, and how much of it is other people. They are two
+// separate questions and were one setting, which meant you could not have an
+// empty city or a forest full of lorries.
+const TERRAIN = [
+  { name: 'OPEN ROAD', blurb: 'MOOR AND HILL', stats: 'the original: heather, gorse<br>drystone country and long views', city: false, forest: false },
+  { name: 'FOREST', blurb: 'CLOSE COUNTRY', stats: 'trees right up to the verge<br>dark, tight, and you cannot see past them', city: false, forest: true },
+  { name: 'CITY', blurb: 'BUILT UP', stats: 'blocks, kerbs, street lighting<br>and the horizon two streets away', city: true, forest: false },
 ];
-let condIndex = 1, modeIndex = 0;
+const TRAFFIC_LEVELS = [
+  { name: 'EMPTY', blurb: '0%', stats: 'the road to yourself<br>nothing to hit and nobody to pass', n: 0 },
+  { name: 'LIGHT', blurb: '35%', stats: 'the occasional car<br>enough to keep you honest', n: 8 },
+  { name: 'BUSY', blurb: '70%', stats: 'a working road<br>something to pass on most straights', n: 16 },
+  { name: 'HEAVY', blurb: '100%', stats: 'nose to tail in places<br>you will be picking your gaps', n: 22 },
+];
+let condIndex = 1, terrainIndex = 0, trafficIndex = 2;
 let CONDITION_GRIP = 1, SNOWING = false;
 
 addEventListener('resize', () => {
@@ -827,7 +839,7 @@ function groundAt(s, side, dist) {
 // How built up the roadside is here. In the city it never lets up; out on the
 // moor you come through something every few kilometres. Passing THROUGH places
 // is most of what stops a long drive feeling like one looped kilometre.
-const builtUp = s => MODES[modeIndex].city ? 1
+const builtUp = s => TERRAIN[terrainIndex].city ? 1
   : smoothstep(0.665, 0.80, vnoise(s * 0.0014, 7.3));
 
 function buildChunk(ci) {
@@ -1007,8 +1019,8 @@ function buildChunk(ci) {
   }
 
   const rnd = mulberry32(ci * 2654435761 + 7);
-  const CITY = MODES[modeIndex].city;
-  const FOREST = !!MODES[modeIndex].forest;
+  const CITY = TERRAIN[terrainIndex].city;
+  const FOREST = !!TERRAIN[terrainIndex].forest;
 
   // One slow function of arc length, sampled once per chunk, that decides what
   // kind of country this is: how wooded, and what colour the ground cover is. It
@@ -1519,6 +1531,7 @@ const CARS = [{
   // flat low nose, cabin shoved right forward, engine deck chopped off square —
   // with the wing standing over the tail.
   name: 'FERRARI F40', blurb: '1987 · MID ENGINE',
+  gears: [3.21, 2.11, 1.46, 1.09, 0.85], final: 3.90, redline: 7750, idle: 950,
   stats: '1100 kg · twin-turbo V8<br>violent, light, hates being provoked',
   wb: 2.62, track: 0.80, axle: 1.31, mass: 1100, torque: 430, shadow: [2.9, 5.5],
   paint: 0xcf1622, gloss: 0.36, flake: 0.0,
@@ -1589,6 +1602,7 @@ const CARS = [{
   // set well back, an upright glasshouse, a notchback boot — which is the whole
   // point of having two of them.
   name: 'BMW M2', blurb: '2023 · FRONT ENGINE',
+  gears: [4.11, 2.32, 1.54, 1.18, 0.98, 0.85], final: 4.79, redline: 7200, idle: 800,
   stats: '1700 kg · turbo straight six<br>heavy, planted, happy sideways',
   wb: 2.75, track: 0.785, axle: 1.375, mass: 1700, torque: 450, shadow: [2.85, 5.4],
   paint: 0x1c56b0, gloss: 0.30, flake: 0.12,
@@ -1646,6 +1660,8 @@ const CARS = [{
   // because there is no radiator to feed, and a cabin pushed forward over a
   // floor full of battery.
   name: 'TESLA MODEL 3', blurb: '2023 · ELECTRIC',
+  // one gear, and FINAL still applies to it — EV_RATIO is multiplied by this
+  gears: [1], final: 4.05, redline: 7600, idle: 0,
   stats: '1850 kg · one gear, no clutch<br>everything it has, from a standstill',
   wb: 2.88, track: 0.79, axle: 1.44, mass: 1850, torque: 1250, shadow: [2.8, 5.3],
   ev: true, paint: 0xe8eaec, gloss: 0.28, flake: 0.05,
@@ -1699,6 +1715,7 @@ const CARS = [{
   // else here is shaped remotely like this — flat panels, vertical glass, a roof
   // you could stand a drink on, and it leans like a bus.
   name: 'LAND ROVER 90', blurb: '1990 · FOUR WHEEL DRIVE',
+  gears: [3.69, 2.13, 1.40, 1.00, 0.83], final: 5.83, redline: 5000, idle: 700,
   stats: '1900 kg · 3.9 V8 · very tall<br>slow, ponderous, and unstoppable',
   wb: 2.59, track: 0.79, axle: 1.295, mass: 1900, torque: 400, shadow: [2.9, 5.0],
   paint: 0x5c6b4f, gloss: 0.55, flake: 0.0,
@@ -1749,6 +1766,7 @@ const CARS = [{
   // Long bonnet, cabin pushed right back over the rear axle, fastback roof into
   // a short high deck — the opposite proportion to the mid-engined Ferrari.
   name: 'MUSCLE COUPE', blurb: '1969 · FRONT ENGINE V8',
+  gears: [2.78, 1.93, 1.36, 1.00], final: 3.88, redline: 6200, idle: 750,
   stats: '1600 kg · enormous torque, no grip<br>it would rather be sideways',
   wb: 2.72, track: 0.80, axle: 1.36, mass: 1600, torque: 520, shadow: [2.9, 5.4],
   paint: 0x1d5f3a, gloss: 0.30, flake: 0.10,
@@ -1800,6 +1818,7 @@ const CARS = [{
   // wheelbase. A four-door saloon with a bonnet scoop and a wing off a race car,
   // which is the entire joke and the entire appeal.
   name: 'SUBARU IMPREZA', blurb: '2015 · TURBO FLAT FOUR',
+  gears: [3.64, 2.24, 1.59, 1.14, 0.89, 0.71], final: 5.46, redline: 7000, idle: 850,
   stats: '1540 kg · four wheel drive<br>grip everywhere, including the wet',
   wb: 2.65, track: 0.775, axle: 1.325, mass: 1540, torque: 460, shadow: [2.8, 5.2],
   paint: 0x1b4fa8, gloss: 0.30, flake: 0.08,
@@ -1887,12 +1906,16 @@ function selectCar(i) {
   carGroups.forEach((g, k) => { g.body.visible = g.rolling.visible = k === i; });
   CAR_WB = s.wb; CAR_TRACK = s.track; CAR_AXLE = s.axle;
   MASS = s.mass; PEAK_TQ = s.torque; IS_EV = !!s.ev;
+  RATIOS = s.gears || RATIOS; FINAL = s.final || FINAL; REVERSE = s.rev || -3.40;
+  REDLINE = s.redline || 7000; LIMITER = REDLINE - 150; BURST = REDLINE * 1.16;
+  REV_CRIT = REDLINE * 1.09; IDLE = s.idle || 850;
+  if (gear > RATIOS.length) gear = RATIOS.length;
   if (IS_EV) { manual = false; if (gear > 1) gear = 1; engineOn = true; blown = false; }
   shadow.scale.set(s.shadow[0] / 2.9, s.shadow[1] / 5.5, 1);
 }
 function openPicker() {
   picking = true;
-  pend.car = carIndex; pend.mode = modeIndex; pend.cond = condIndex;
+  pend.car = carIndex; pend.terrain = terrainIndex; pend.traffic = trafficIndex; pend.cond = condIndex;
   paintPicker();
   pickEl.style.display = 'flex';
   for (const k in keys) keys[k] = false;   // no key survives the overlay opening
@@ -1912,7 +1935,7 @@ function closePicker() {
 // per-condition asset — the prefiltered environment map — was made up front.
 function applyConditions(i) {
   condIndex = i;
-  const c = CONDITIONS[i], city = MODES[modeIndex].city;
+  const c = CONDITIONS[i], city = TERRAIN[terrainIndex].city;
   SKY_TOP.setHex(c.top); SKY_MID.setHex(c.mid); SKY_HAZE.setHex(c.haze);
   SUN_TINT.setHex(c.tint); CLOUD_DARK.setHex(c.cloudDark);
   SUN_DIR.set(c.dir[0], c.dir[1], c.dir[2]).normalize();
@@ -1923,7 +1946,7 @@ function applyConditions(i) {
   scene.fog.color.copy(SKY_HAZE);
   // A city closes the horizon in whatever the weather — you cannot see a
   // kilometre down a street, and the moor beyond the blocks should not be there.
-  scene.fog.density = c.fog * (city ? 2.2 : MODES[modeIndex].forest ? 1.8 : 1);
+  scene.fog.density = c.fog * (city ? 2.2 : TERRAIN[terrainIndex].forest ? 1.8 : 1);
   scene.environment = envMaps[i];
   renderer.toneMappingExposure = c.exposure;
   terrainMat.color.setHex(c.ground);
@@ -1947,16 +1970,18 @@ function applyConditions(i) {
     'radial-gradient(ellipse 78% 68% at 50% 46%, rgba(0,0,0,0) 40%, ' + c.vignette + ' 100%)';
 }
 
-// A mode changes what the world is made of, so every chunk has to go. The car
+// Terrain changes what the world is made of, so every chunk has to go. The car
 // stays where it is: the spline is the same road either way.
-function applyMode(i) {
-  modeIndex = i;
-  RELIEF = MODES[i].city ? 0.22 : 1;
+function applyTerrain(i) {
+  terrainIndex = i;
+  RELIEF = TERRAIN[i].city ? 0.22 : 1;
   for (const ci of [...chunks.keys()]) disposeChunk(ci);
   lastChunk = -9999;
-  traffic.length = 0;
-  applyConditions(condIndex);      // fog and lighting depend on the mode too
+  applyConditions(condIndex);      // fog and lighting depend on the terrain too
 }
+// How much traffic, on the other hand, costs nothing to change — updateTraffic
+// adds and removes cars to match, so there is no reason to rebuild the world.
+function applyTraffic(i) { trafficIndex = i; }
 
 // Three rows of the same kind of choice, so one table drives all of them: up and
 // down move between rows, left and right along one. Every setter takes effect
@@ -1966,10 +1991,11 @@ function applyMode(i) {
 // happens to the car or the world until you apply it, and backing out with Esc
 // leaves everything exactly as it was. Changing mode tears down and rebuilds
 // every chunk, which is not something to do to somebody who was only looking.
-const pend = { car: 0, mode: 0, cond: 1 };
+const pend = { car: 0, terrain: 0, traffic: 2, cond: 1 };
 const PICK = [
   { label: 'CAR', list: CARS, key: 'car' },
-  { label: 'MODE', list: MODES, key: 'mode' },
+  { label: 'TERRAIN', list: TERRAIN, key: 'terrain' },
+  { label: 'TRAFFIC', list: TRAFFIC_LEVELS, key: 'traffic' },
   { label: 'WEATHER', list: CONDITIONS, key: 'cond' },
 ];
 let pickRow = 0;
@@ -2007,7 +2033,8 @@ function paintPicker() {
 // preview — you choose by looking at the thing rather than at a description.
 function applyPending() {
   if (pend.car !== carIndex) selectCar(pend.car);
-  if (pend.mode !== modeIndex) applyMode(pend.mode);
+  if (pend.terrain !== terrainIndex) applyTerrain(pend.terrain);
+  if (pend.traffic !== trafficIndex) applyTraffic(pend.traffic);
   if (pend.cond !== condIndex) applyConditions(pend.cond);
 }
 function pickKey(code) {
@@ -2219,7 +2246,7 @@ function trafficAI(t, dt) {
 const trM = new THREE.Matrix4(), trQ = new THREE.Quaternion(), trE = new THREE.Euler(0, 0, 0, 'YXZ');
 const trP = new THREE.Vector3(), trS = new THREE.Vector3(1, 1, 1);
 function updateTraffic(dt, fx, fz, rx, rz) {
-  const want = MODES[modeIndex].traffic;
+  const want = TRAFFIC_LEVELS[trafficIndex].n;
   while (traffic.length < want) { const t = {}; placeTrafficCar(t, true); traffic.push(t); }
   traffic.length = Math.min(traffic.length, want);
   for (const m of trafficMeshes) m.count = traffic.length;
@@ -2392,14 +2419,14 @@ addEventListener('keydown', e => {
   // Read e.code, not e.key: with the clutch (Shift) held, "1" arrives as "!"
   let want = null;
   const digit = /^(?:Digit|Numpad)([0-6])$/.exec(e.code);
-  if (digit) want = +digit[1];
+  if (digit) want = Math.min(+digit[1], RATIOS.length);
   else if (e.code === 'KeyR') want = -1;
   if (want !== null) {
     if (!manual) setManual(true);      // asking for a gear means you want manual
     shiftTo(want);
   }
   // sequential shifting, so you never need Shift and a number at once
-  if (e.code === 'KeyE' || e.code === 'BracketRight') { if (!manual) setManual(true); shiftTo(Math.min(6, Math.max(0, gear) + 1)); }
+  if (e.code === 'KeyE' || e.code === 'BracketRight') { if (!manual) setManual(true); shiftTo(Math.min(RATIOS.length, Math.max(0, gear) + 1)); }
   if (e.code === 'KeyQ' || e.code === 'BracketLeft') { if (!manual) setManual(true); shiftTo(Math.max(1, gear - 1)); }
 
   if (k.startsWith('arrow') || k === ' ') e.preventDefault();
@@ -2416,11 +2443,16 @@ addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 // Everything the gearbox does — stalling, clutch slip, rev-matching, blowing up
 // on a money shift — falls out of integrating it against the torque the clutch
 // feeds back from the wheels. Nothing below is a special case.
-const RATIOS = [3.85, 2.40, 1.75, 1.36, 1.11, 0.93];   // gears 1..6
-const REVERSE = -3.40, FINAL = 4.05, WHEEL_R = 0.38;
+// The gearbox is the car, so all of this comes from the spec: how many gears,
+// how they are spaced, what the final drive is, and where it stops revving —
+// which between them decide the top speed and how it gets there. A Land Rover
+// with five very short gears and a 5000 rpm limit is a different machine from a
+// V8 with five long ones and 7750, and it should not merely be a lighter one.
+let RATIOS = [3.85, 2.40, 1.75, 1.36, 1.11, 0.93];
+let REVERSE = -3.40, FINAL = 4.05;
+let IDLE = 850, REDLINE = 7000, LIMITER = 6850, BURST = 8400, REV_CRIT = 7700;
+const WHEEL_R = 0.38;
 const RPM2RAD = Math.PI / 30;
-const IDLE = 850, REDLINE = 7000, LIMITER = 6850, BURST = 8400;
-const REV_CRIT = 7700;      // the lamp goes red here; you have maybe half a second
 const CAR_R = 1.1;         // how far the car keeps its middle from anything solid
 const REV_MAX = 2.2;        // m/s — reverse will not select above walking pace
 const CRUISE = 66;          // m/s the autopilot will wind up to on an open road
@@ -2702,6 +2734,7 @@ let camInit = false, fovNow = FOV, showTurn = 0;
 let autoDrive = false, autoLane = 0, autoHold = 0, autoPass = 0;
 const PASS_ONCOMING = true;    // let the autopilot use the far side of the line
 const autoOut = { gas: 0, brake: 0, steer: 0 };
+const autoDbg = {};   // what it was thinking, for watching it drive
 
 // The nearest thing ahead within a car's width of a given line across the road,
 // and how fast it is going. Metres, not lane indices: a car halfway through a
@@ -2871,6 +2904,10 @@ function autopilot(dt) {
     target = Math.min(target, Math.sqrt(a.spd * a.spd + 2 * brake * 0.72 * room));
     if (a.gap < 8 + v * 0.6) target = 0;
   }
+  autoDbg.v = v; autoDbg.target = target; autoDbg.open = openRoad; autoDbg.lane = autoLane;
+  autoDbg.lat = lat; autoDbg.dEst = dEst; autoDbg.passing = passing; autoDbg.split = split;
+  autoDbg.gap = a ? a.gap : -1; autoDbg.leadSpd = a ? a.spd : -1; autoDbg.oncoming = oncoming;
+  autoDbg.nLanes = nLanes; autoDbg.steer = autoOut.steer;
   const err = target - v;
   autoOut.gas = clamp(err * 0.45, 0, 1);
   autoOut.brake = clamp(-err * 0.42, 0, 1);
@@ -2910,9 +2947,10 @@ let dpr = MAX_DPR, frameAcc = 0, frames = 0;
 // chunks and applyConditions regrades them; both are cheap enough to run again
 // any time you open the picker.
 selectCar(0);
-applyMode(0);
+applyTerrain(0);
+applyTraffic(2);
 applyConditions(1);
-pend.car = 0; pend.mode = 0; pend.cond = 1;
+pend.car = 0; pend.terrain = 0; pend.traffic = 2; pend.cond = 1;
 paintPicker();
 
 renderer.setAnimationLoop(() => {
@@ -2998,15 +3036,15 @@ renderer.setAnimationLoop(() => {
       // would actually be turning at is the thing that matters.
       const at = g => Math.abs(vLong) / WHEEL_R * Math.abs(ratio(g) * FINAL) / RPM2RAD;
       const now = at(gear), below = gear > 1 ? at(gear - 1) : 1e9;
-      if (now > 6250 && gear < 6) { shiftTo(gear + 1); autoShiftLock = 0.35; shiftCut = 0.07; }
+      if (now > REDLINE * 0.90 && gear < RATIOS.length) { shiftTo(gear + 1); autoShiftLock = 0.35; shiftCut = 0.07; }
       // kickdown: you have asked for everything, and there is a lower gear that
       // gives more of it without meeting the limiter
-      else if (gas > 0.62 && gear > 1 && now < 5000 && below < LIMITER - 400) {
+      else if (gas > 0.62 && gear > 1 && now < REDLINE * 0.72 && below < LIMITER - 400) {
         shiftTo(gear - 1); autoShiftLock = 0.5; shiftCut = 0.06;
       }
       // and coasting down, sooner than it used to, so you come out of a corner
       // in the right gear rather than two too tall
-      else if (now < 2500 && gear > 1 && below < LIMITER - 200) {
+      else if (now < REDLINE * 0.36 && gear > 1 && below < LIMITER - 200) {
         shiftTo(gear - 1); autoShiftLock = 0.35; shiftCut = 0.06;
       }
     }
@@ -3375,14 +3413,17 @@ renderer.setAnimationLoop(() => {
     // one thing an electric car is not. It gets a triangle at a much higher
     // pitch tied to ROAD SPEED rather than to revs — the whine of a reduction
     // gear — far quieter, with the filter opened right up so it stays thin.
-    const f = IS_EV ? 120 + Math.abs(vLong) * 18 : 22 + rpm * 0.0135;
+    const f = IS_EV ? 62 + Math.abs(vLong) * 5.2 : 22 + rpm * 0.0135;
     engOscs.forEach((o, i) => {
       const want = IS_EV ? 'triangle' : 'sawtooth';
       if (o.type !== want) o.type = want;
-      o.frequency.setTargetAtTime(f * (1 + i * 0.005) * (i === 2 ? 2 : 1), audioCtx.currentTime, 0.02);
+      // The third oscillator is an octave up, which on a sawtooth engine is a
+      // harmonic you want and on a high triangle is a whistle that hurts.
+      const mult = i === 2 ? (IS_EV ? 1.01 : 2) : 1;
+      o.frequency.setTargetAtTime(f * (1 + i * 0.005) * mult, audioCtx.currentTime, 0.02);
     });
-    engFilter.frequency.value = IS_EV ? 2600 + Math.abs(vLong) * 40 : 420 + rpm * 0.16 + gas * 400;
-    const load = IS_EV ? 0.004 + gas * 0.007 + Math.abs(vLong) * 0.00035
+    engFilter.frequency.value = IS_EV ? 240 + Math.abs(vLong) * 6 : 420 + rpm * 0.16 + gas * 400;
+    const load = IS_EV ? 0.0022 + gas * 0.0035 + Math.abs(vLong) * 0.00012
                        : 0.012 + gas * 0.028 + rpm / REDLINE * 0.02;
     engGain.gain.setTargetAtTime(muted || !engineOn ? 0 : load, audioCtx.currentTime, 0.05);
     if (windGain) windGain.gain.setTargetAtTime(muted ? 0 : Math.min(IS_EV ? 0.085 : 0.055, speedAbs * (IS_EV ? 0.0026 : 0.0016)), audioCtx.currentTime, 0.1);
@@ -3410,7 +3451,7 @@ renderer.setAnimationLoop(() => {
   toastFor = Math.max(0, toastFor - dt);
   setSty(el.toast, 'opacity', toastFor > 0 ? '0.9' : '0');
   setTxt(el.gear, gear === -1 ? 'R' : gear === 0 ? 'N' : IS_EV ? 'D' : gear);
-  setCls(el.gear, (manual && rpm > 6400 && gear > 0) ? 'warn' : '');
+  setCls(el.gear, (manual && rpm > REDLINE * 0.92 && gear > 0) ? 'warn' : '');
   // the dial is scaled to BURST, so the red band above redline is real estate you
   // can actually watch the needle climb into
   setSty(el.tach, 'transform', 'scaleX(' + (IS_EV ? clamp(kW / EV_PEAK_KW, 0, 1) : clamp(rpm / BURST, 0, 1)).toFixed(3) + ')');
