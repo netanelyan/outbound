@@ -242,7 +242,12 @@ const scene = new THREE.Scene();
 // Furthest geometry is about 1.2 km (5 chunks ahead, 760 m of terrain to the
 // side). near/far is kept as tight as that allows — the ratio is what sets depth
 // precision, and 0.1/4000 buys nothing but z-fighting on distant hills.
-const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.35, 2400);
+// 52 degrees, not the 62 this started with. A wide lens makes the car small and
+// the hills enormous — it is the standard way to make a scene feel like a map of
+// itself. Pulling the chase camera in to match (see below) keeps the same amount
+// of road visible while roughly half again as much of the frame is car.
+const FOV = 52;
+const camera = new THREE.PerspectiveCamera(FOV, innerWidth / innerHeight, 0.35, 2400);
 
 // Dusk palette. Everything else in the file is graded against these four values —
 // the fog, the terrain, the lights and the vignette all come back to them.
@@ -627,7 +632,10 @@ function buildChunk(ci) {
       const j = (rnd() - 0.5) * 9;
       const x = p.x + rx * side * dist + Math.sin(p.heading) * j;
       const z = p.z + rz * side * dist - Math.cos(p.heading) * j;
-      const r = (0.45 + rnd() * 1.25) * (1 + dist * 0.005);   // bigger far out, to stay visible
+      // Scaled to the car rather than to the screen: a gorse bush beside the
+      // road is knee to waist high on a person, so it comes up to about the
+      // Ferrari's sills. They still grow with distance, to stay resolvable.
+      const r = (0.32 + rnd() * 0.80) * (1 + dist * 0.005);
       e.set(rnd() * 0.45, rnd() * 6.283, rnd() * 0.45);
       sc.set(r * (0.85 + rnd() * 0.5), r * (0.42 + rnd() * 0.45), r * (0.85 + rnd() * 0.5));
       p3.set(x, terrainY(p.y, x, z, dist) + sc.y * 0.35, z);
@@ -1365,7 +1373,7 @@ setTimeout(() => { document.getElementById('help').style.opacity = 0.28; }, 1400
 const camPos = new THREE.Vector3();
 const camLook = new THREE.Vector3();
 const camTgt = new THREE.Vector3();
-let camInit = false;
+let camInit = false, fovNow = FOV;
 
 // ================= loop =================
 const clock = new THREE.Clock();
@@ -1412,8 +1420,11 @@ renderer.setAnimationLoop(() => {
                        : clamp(0.18 + smoothstep(0.4, 4.5, Math.abs(vLong)) * 0.9, 0, 1);
   if (shiftCut > 0) clutchTarget = 0;
   shiftCut = Math.max(0, shiftCut - dt);
-  // the pedal goes down far faster than it comes back up
-  clutch += (clutchTarget - clutch) * (1 - Math.exp(-dt * (clutchTarget < clutch ? 30 : 8)));
+  // The pedal goes down far faster than it comes back up — but only in manual,
+  // where the rate is a foot easing off. In auto it is a gearbox, and taking a
+  // quarter of a second to pick the drive back up after every upshift is a hole
+  // in the acceleration you can feel.
+  clutch += (clutchTarget - clutch) * (1 - Math.exp(-dt * (clutchTarget < clutch ? 30 : manual ? 8 : 18)));
 
   // ---------- starter ----------
   // The starter turns the engine over whether or not there is anything left in
@@ -1430,8 +1441,8 @@ renderer.setAnimationLoop(() => {
     else if (gear === -1 && gas && vLong > -0.5) shiftTo(1);
     else if (gear === 0) shiftTo(1);
     else if (gear > 0 && autoShiftLock <= 0) {
-      if (rpm > 6250 && gear < 6) { shiftTo(gear + 1); autoShiftLock = 0.35; shiftCut = 0.12; }
-      else if (rpm < 2150 && gear > 1) { shiftTo(gear - 1); autoShiftLock = 0.35; shiftCut = 0.10; }
+      if (rpm > 6250 && gear < 6) { shiftTo(gear + 1); autoShiftLock = 0.35; shiftCut = 0.07; }
+      else if (rpm < 2150 && gear > 1) { shiftTo(gear - 1); autoShiftLock = 0.35; shiftCut = 0.06; }
     }
   }
 
@@ -1494,7 +1505,18 @@ renderer.setAnimationLoop(() => {
 
   // ---------- longitudinal forces ----------
   let force = Tc * gr * EFF / WHEEL_R;
-  wheelSpin = clamp(slipped / Math.max(tyreCap, 1), 0, 1.2);
+  // Wheelspin is the driven tyres letting go, and two things have to be right
+  // about it or everything downstream jumps. It is measured against what they
+  // could hold with the handbrake OFF, because the lever locks the rear axle
+  // rather than spinning it — normalising against the reduced capacity made
+  // simply touching the handbrake read as instant full wheelspin. And it is
+  // low-passed, because `slipped` is a per-frame accumulator that steps from
+  // nothing to saturated in one frame when a clutch comes back after a shift.
+  // A tyre takes about a tenth of a second to break away, so this does too:
+  // real wheelspin survives, single-frame transients do not.
+  const spinCap = gr !== 0 ? gripAcc * MASS * 0.58 * WHEEL_R / (Math.abs(gr) * EFF) : 1e9;
+  const spinRaw = clamp(slipped / Math.max(spinCap, 1), 0, 1.2);
+  wheelSpin += (spinRaw - wheelSpin) * (1 - Math.exp(-dt * 10));
   force = clamp(force, -tractionN, tractionN);
 
   let accel = force / MASS;
@@ -1659,8 +1681,8 @@ renderer.setAnimationLoop(() => {
     camLook.set(pos.x + fx * 20, pos.y + 1.5, pos.z + fz * 20);
     camera.position.copy(camPos);
   } else {
-    const back = camMode === 0 ? 8.8 : 15;
-    const up = camMode === 0 ? 3.5 : 7;
+    const back = camMode === 0 ? 6.9 : 12;
+    const up = camMode === 0 ? 2.7 : 5.2;
     // trail behind the direction of travel, GTA style
     const travel = Math.atan2(fx * vLong + rx * vLat, fz * vLong + rz * vLat);
     const blend = smoothstep(2, 14, speedAbs) * 0.55;
@@ -1671,14 +1693,19 @@ renderer.setAnimationLoop(() => {
     if (!camInit) { camPos.copy(camTgt); camInit = true; }
     camPos.lerp(camTgt, 1 - Math.exp(-dt * (4 + speedAbs * 0.06)));
     camera.position.copy(camPos);
-    camLook.set(pos.x + fx * 6, pos.y + 1.3, pos.z + fz * 6);
+    camLook.set(pos.x + fx * 4.5, pos.y + 1.15, pos.z + fz * 4.5);
   }
   if (camShake > 0.01) {
     camera.position.x += (Math.random() - 0.5) * camShake * 0.5;
     camera.position.y += (Math.random() - 0.5) * camShake * 0.5;
   }
   camera.lookAt(camLook);
-  camera.fov = 62 + speedAbs * 0.28 + wheelSpin * 3;
+  // The field of view opens up with speed for the sensation of it, but it must
+  // never track an instantaneous quantity: a step in the projection matrix is
+  // the whole world lurching, and at a third of a second to settle it reads as
+  // the car pulling away rather than as a glitch.
+  fovNow += (FOV + speedAbs * 0.18 + wheelSpin * 2.2 - fovNow) * (1 - Math.exp(-dt * 5));
+  camera.fov = fovNow;
   camera.updateProjectionMatrix();
 
   // The dome is centred on the eye so it can never be driven out of, and the sun
