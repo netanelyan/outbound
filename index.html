@@ -2055,6 +2055,139 @@ const CARS = [{
     box(1.40, 0.18, 0.05, 0, 0.86, 2.30, dark);
     box(1.28, 0.14, 0.30, 0, 0.28, 2.02, dark);                 // diffuser
   },
+}, {
+  // An open two-seater: 4.06 m long, 1.74 wide, and 1.22 tall to the top of a
+  // windscreen you can see over. There is no roof to model, because there is no
+  // roof — the profile runs flat from the scuttle to the rear deck, straight
+  // through where every other car here has a cabin. That one absence is the
+  // whole silhouette, and it is the only one of the eight you sit IN rather
+  // than under.
+  name: 'OPEN ROADSTER', blurb: '1962 · NO ROOF AT ALL',
+  gears: [3.24, 2.01, 1.40, 1.00], final: 3.61, redline: 6200, idle: 780,
+  stats: '1050 kg · 4.2 straight six<br>light, loud, and completely exposed',
+  wb: 2.44, track: 0.755, axle: 1.22, mass: 1050, torque: 380, shadow: [2.7, 4.7],
+  paint: 0x9aa9b6, gloss: 0.26, flake: 0.06,
+  width: 1.56, glassWidth: 1.70,
+  body: [
+    [ 2.06, 0.34], [ 2.10, 0.52], [ 1.96, 0.66],   // low oval nose
+    [ 1.36, 0.74], [ 0.74, 0.80],                  // and a very long bonnet
+    [ 0.34, 0.90],                                 // the scuttle, which is the top of the car
+    [-0.86, 0.92],                                 // dead flat through the cockpit
+    [-1.42, 0.88], [-1.86, 0.76],                  // short rounded tail
+    [-2.00, 0.50], [-1.92, 0.30],
+    [ 0.00, 0.26],
+  ],
+  // One pane, raked hard and barely deeper than a helmet visor. Nothing else:
+  // no side glass and no backlight, because there is nothing to hold them.
+  glass: [
+    [[ 0.46, 0.94], [ 0.10, 1.22], [ 0.02, 1.15], [ 0.38, 0.87]],
+  ],
+  // Round-shouldered and pinched at both ends, the way a body beaten over a
+  // buck comes out. Almost no tumblehome up top — with no roof to pull in
+  // toward, the flanks stay full width right to the waist rail.
+  section: (y, z) => {
+    const waist = 0.72 + 0.28 * smoothstep(0.22, 0.62, y)
+                       - 0.06 * smoothstep(0.84, 1.22, y);
+    return waist * (1 - 0.36 * smoothstep(1.20, 2.08, -z))
+                 * (1 - 0.26 * smoothstep(1.25, 2.00, z));
+  },
+  tyres: [{ r: 0.335, w: 0.22, x: 0.755, z: -1.22, rim: 0.72, front: 1 },
+          { r: 0.335, w: 0.26, x: 0.750, z:  1.22, rim: 0.72, front: 0 }],
+  // Wire wheels: many thin spokes rather than few fat ones.
+  face: () => makeWheelTexture(16, '#cdd3d9', '#e2e7ec', '#8d9298', 4),
+  trim: ({ box, disc, dark, chrome, redLamp, whiteLamp, paint }) => {
+    // The cockpit is a recess laid INTO that flat deck rather than a hole cut
+    // out of a roof, inset in width so paint still shows along both sills. It
+    // has to sit above 1.01, not above the 0.92 in the profile: the bevel puts
+    // the real skin about 0.09 proud of every number listed up there, and a
+    // recess placed on the nominal surface is a recess buried inside the car.
+    box(1.02, 0.08, 1.18, 0, 1.00, 0.26, dark);
+    for (const sx of [-1, 1]) {
+      box(0.38, 0.24, 0.10, sx * 0.30, 1.11, 0.78, dark);        // seat backs
+      box(0.06, 0.32, 0.06, sx * 0.32, 1.15, 0.92, chrome);      // roll hoops
+      box(0.05, 0.30, 0.06, sx * 0.50, 1.09, -0.24, chrome, -0.6);   // screen pillars
+      disc(0.125, 0.05, sx * 0.50, 0.74, -1.88, chrome);         // headlamp rims
+      disc(0.105, 0.06, sx * 0.50, 0.74, -1.92, whiteLamp);      // and the lamps
+      box(0.20, 0.10, 0.05, sx * 0.46, 0.68,  2.04, redLamp);    // tail lamps
+      box(0.12, 0.04, 0.05, sx * 0.84, 0.90, -0.40, chrome);     // mirror stalk
+      box(0.08, 0.09, 0.14, sx * 0.91, 0.92, -0.42, chrome);     // mirror
+      disc(0.055, 0.09, sx * 0.28, 0.38,  2.02, chrome);         // twin pipes
+      box(0.07, 0.09, 1.30, sx * 0.78, 0.42,  0.20, chrome);     // side sill
+    }
+    box(1.00, 0.05, 0.07, 0, 1.24, -0.08, chrome);               // screen top rail
+    box(0.34, 0.07, 0.74, 0, 0.86, -1.10, paint);                // bonnet power bulge
+    box(0.66, 0.34, 0.05, 0, 0.60, -2.14, chrome);               // grille surround
+    box(0.58, 0.28, 0.06, 0, 0.60, -2.12, dark);                 // and the mouth
+    box(0.86, 0.09, 0.10, 0, 0.46, -2.12, chrome);               // chrome bumpers
+    box(0.86, 0.09, 0.10, 0, 0.46,  2.06, chrome);
+    disc(0.09, 0.04, 0, 1.02, 0.98, chrome);                     // filler cap on the deck
+  },
+}, {
+  // 4.60 m long, 2.04 wide and 1.14 tall over a 2.71 m wheelbase — as wide as
+  // the Land Rover and a full 0.8 m lower. Geared for 420 km/h, which is 90 more
+  // than the F40 and about 180 more than the road will ever give you: the point
+  // is that it is still pulling where everything else has stopped.
+  name: 'HYPERCAR', blurb: '2024 · QUAD TURBO W16',
+  gears: [2.83, 1.94, 1.49, 1.19, 0.99, 0.85, 0.75], final: 3.66, redline: 8200, idle: 1000,
+  stats: '1400 kg · four wheel drive<br>the only one here that runs out of road',
+  wb: 2.71, track: 0.84, axle: 1.355, mass: 1400, torque: 1100, shadow: [3.1, 5.4],
+  // A curve to match the rev range instead of the default one: peak at 5200 and
+  // wide enough that it is still making three quarters of it against the
+  // limiter. And it drives all four wheels, because 1100 Nm through two of them
+  // is not a fast car, it is a burnout — the traction cap, not the engine, is
+  // what every rear-driven car here is actually limited by off the line.
+  tqPeak: 5200, tqSpan: 5200, drive: 0.92,
+  paint: 0xd8560e, gloss: 0.22, flake: 0.14,
+  width: 1.86, glassWidth: 2.10,
+  body: [
+    [ 2.28, 0.24], [ 2.32, 0.42], [ 2.08, 0.54],   // splitter, then a nose with no height at all
+    [ 1.52, 0.64], [ 0.92, 0.74],                  // flat front deck into the cowl
+    [ 0.30, 1.10], [-0.50, 1.14],                  // steep screen, a roof you could lose a hand under
+    [-1.30, 1.02], [-2.00, 0.94],                  // rear glass, then the engine deck
+    [-2.24, 0.86], [-2.28, 0.48], [-2.18, 0.22],
+    [ 0.00, 0.18],
+  ],
+  glass: [
+    [[ 0.950, 0.850], [ 0.330, 1.200], [ 0.250, 1.130], [ 0.870, 0.780]],
+    [[ 0.300, 1.130], [-0.500, 1.170], [-0.640, 0.900], [ 0.380, 0.860]],
+    [[-0.540, 1.220], [-1.320, 1.100], [-1.240, 1.020], [-0.500, 1.140]],
+  ],
+  // The most extreme section here by some way: hips wider than anything, a roof
+  // barely half that, and a nose that comes to a point in plan.
+  section: (y, z) => {
+    const waist = 0.64 + 0.36 * smoothstep(0.20, 0.62, y)
+                       - 0.34 * smoothstep(0.80, 1.14, y);
+    return waist * (1 - 0.36 * smoothstep(1.35, 2.32, -z))
+                 * (1 - 0.04 * smoothstep(1.90, 2.30, z))
+                 * (1 + 0.06 * smoothstep(0.30, 1.40, z));      // the rear haunch
+  },
+  tyres: [{ r: 0.360, w: 0.32, x: 0.870, z: -1.355, rim: 0.68, front: 1 },
+          { r: 0.390, w: 0.46, x: 0.830, z:  1.355, rim: 0.68, front: 0 }],
+  face: () => makeWheelTexture(7, '#2e3237', '#3c4147', '#d8560e', 21),
+  trim: ({ box, disc, dark, chrome, redLamp, whiteLamp, paint }) => {
+    // The wing, on two swan-necks off the deck, and big enough to be the thing
+    // you recognise from behind.
+    box(1.92, 0.06, 0.52, 0.00, 1.30, 1.94, dark, 0.14);
+    for (const sx of [-1, 1]) {
+      box(0.05, 0.24, 0.56, sx * 0.96, 1.31, 1.94, dark);        // end plates
+      box(0.09, 0.30, 0.16, sx * 0.44, 1.14, 2.02, dark);        // swan-neck struts
+      box(0.34, 0.06, 0.05, sx * 0.52, 0.80, -2.40, whiteLamp);  // LED strip lamps
+      box(0.40, 0.14, 0.06, sx * 0.52, 0.74, -2.36, dark);
+      box(0.30, 0.05, 0.05, sx * 0.54, 0.92,  2.36, redLamp);    // and a strip at the back
+      box(0.26, 0.20, 0.12, sx * 0.62, 0.48, -2.34, dark);       // corner intakes
+      box(0.13, 0.26, 0.86, sx * 1.02, 0.78,  0.46, dark);       // the side pods, which are enormous
+      box(0.13, 0.04, 0.05, sx * 1.00, 0.86, -0.86, dark);       // mirror stalk
+      box(0.08, 0.10, 0.15, sx * 1.08, 0.90, -0.88, dark);       // mirror
+      box(0.12, 0.10, 1.90, sx * 0.94, 0.30,  0.20, dark);       // side skirt
+      disc(0.070, 0.14, sx * 0.20, 0.60, 2.32, chrome);          // quad pipes, stacked
+      disc(0.070, 0.14, sx * 0.20, 0.76, 2.32, chrome);
+    }
+    box(0.90, 0.06, 0.44, 0, 1.24, -0.10, dark);                 // roof scoop feeding the engine
+    box(1.30, 0.06, 0.34, 0, 0.20, -2.16, dark);                 // front splitter
+    box(0.70, 0.16, 0.08, 0, 0.46, -2.38, dark);                 // centre intake
+    box(1.46, 0.30, 0.34, 0, 0.30,  2.20, dark);                 // and a diffuser to match the wing
+    for (const lz of [0.60, 0.84, 1.08]) box(1.10, 0.03, 0.10, 0, 1.44 - 0.20 * lz, lz, dark, 0.20);
+  },
 }];
 
 // Both cars are built up front and one of them is simply hidden. They are ~15k
@@ -2103,6 +2236,13 @@ scene.add(car);
 let carIndex = 0, picking = true;
 let CAR_WB = 2.62, CAR_TRACK = 0.80, CAR_AXLE = 1.31, IS_EV = false;
 let MASS = 1100, PEAK_TQ = 430;
+// Where the torque curve peaks and how broad it is, and how much of the car's
+// weight is over the driven wheels. All three were fixed for every car, which
+// was fine while every engine here redlined near 7000: an engine that goes to
+// 8200 spends its whole working life past the far side of a curve centred on
+// 4100 and pinned at its 30% floor, so it makes headline torque nowhere you
+// ever use it. Defaults reproduce the old fixed numbers exactly.
+let TQ_PEAK = 4100, TQ_SPAN = 3700, DRIVE = 0.58;
 
 const pickEl = document.getElementById('pick');
 function selectCar(i) {
@@ -2111,6 +2251,7 @@ function selectCar(i) {
   carGroups.forEach((g, k) => { g.body.visible = g.rolling.visible = k === i; });
   CAR_WB = s.wb; CAR_TRACK = s.track; CAR_AXLE = s.axle;
   MASS = s.mass; PEAK_TQ = s.torque; IS_EV = !!s.ev;
+  TQ_PEAK = s.tqPeak || 4100; TQ_SPAN = s.tqSpan || 3700; DRIVE = s.drive || 0.58;
   RATIOS = s.gears || RATIOS; FINAL = s.final || FINAL; REVERSE = s.rev || -3.40;
   REDLINE = s.redline || 7000; LIMITER = REDLINE - 150; BURST = REDLINE * 1.16;
   REV_CRIT = REDLINE * 1.09; IDLE = s.idle || 850;
@@ -2771,7 +2912,7 @@ function engineTorque(r, throttle) {
   // POWER, which is the whole character of the thing: no band to stay in, no
   // gear to be in, just less of it the faster you are already going.
   if (IS_EV) return PEAK_TQ * throttle * (r < EV_BASE ? 1 : EV_BASE / Math.max(r, 1));
-  let t = PEAK_TQ * clamp(1 - Math.pow((r - 4100) / 3700, 2), 0.30, 1) * throttle;
+  let t = PEAK_TQ * clamp(1 - Math.pow((r - TQ_PEAK) / TQ_SPAN, 2), 0.30, 1) * throttle;
   // Idle governor: cancel friction exactly, plus a proportional pull toward
   // IDLE, so the engine settles precisely at idle instead of sagging under its
   // own drag. It is far too weak to save you from a load — that is the point.
@@ -2978,6 +3119,7 @@ let camInit = false, fovNow = FOV, showTurn = 0;
 // still stop. The last one is what "never crashes" actually means — almost every
 // crash is a speed chosen a hundred metres before the thing you hit.
 let autoDrive = false, autoLane = 0, autoHold = 0, autoPass = 0;
+let autoStuck = 0, autoBack = 0, autoBackDir = 1;
 const PASS_ONCOMING = true;    // let the autopilot use the far side of the line
 const autoOut = { gas: 0, brake: 0, steer: 0 };
 const autoDbg = {};   // what it was thinking, for watching it drive
@@ -3029,9 +3171,42 @@ function lineFree(lat, v) {
 
 
 function autopilot(dt) {
+  // ---- getting unstuck ----
+  // Everything below here assumes the car can go where it is pointed. Wedged
+  // against a wall it cannot, and then the rest of this holds the throttle wide
+  // open against the obstacle for as long as you let it: measured at 4-5% of
+  // all frames, and one run spent a quarter of its life doing it, logging 36
+  // "collisions" that were really one collision it never got out of. Sitting
+  // there forever is a worse failure than the crash that put it there.
+  //
+  // Being stopped BEHIND something is not the same thing and must not trigger
+  // this, hence the queue check: a jam clears on its own, a wall does not.
+  const queue = aheadIn(dEst, false);
+  autoStuck = (Math.abs(vLong) < 0.8 && autoBack <= 0 && gear !== -1
+               && !(queue && queue.gap < 14)) ? autoStuck + dt : 0;
+  if (autoStuck > 2.0) {
+    autoBack = 1.5; autoStuck = 0;
+    // Reverse with the wheel toward whichever side we are stuck on. In reverse
+    // that swings the NOSE the other way — off the obstacle and back down the
+    // road — which is the half of the manoeuvre that actually frees the car;
+    // simply backing up straight leaves it pointed at the same wall.
+    autoBackDir = Math.sign(dEst - (autoLane + 0.5) * LANE_W) || 1;
+  }
+  if (autoBack > 0) {
+    autoBack -= dt;
+    if (gear !== -1) {                       // stop first, then select it
+      autoOut.gas = 0; autoOut.brake = 1; autoOut.steer = 0;
+      if (Math.abs(vLong) < 0.5) shiftTo(-1);
+      return;
+    }
+    autoOut.gas = 1; autoOut.brake = 0; autoOut.steer = autoBackDir;
+    return;
+  }
+
   // It only ever drives forwards, so the first thing it does with a car handed
   // over in reverse is stop and get out of it. Without this, "accelerate" in
   // reverse gear means accelerate BACKWARDS, at whatever speed it fancied.
+  // This is also how the manoeuvre above ends.
   if (gear === -1) {
     autoOut.gas = 0; autoOut.brake = 1; autoOut.steer = 0;
     if (vLong > -0.5) shiftTo(1);
@@ -3329,8 +3504,10 @@ renderer.setAnimationLoop(() => {
 
   // ---------- engine + clutch ----------
   const gripAcc = grip * 9.81;
-  // only the driven axle carries traction, so first gear can light up the tyres
-  const tractionN = gripAcc * MASS * (handbrake ? 0.24 : 0.58);
+  // only the driven axle carries traction, so first gear can light up the tyres —
+  // and a car that drives all four has most of the car's weight helping it, which
+  // is the difference between putting the power down and merely making smoke
+  const tractionN = gripAcc * MASS * (handbrake ? 0.24 : DRIVE);
   const gr = ratio(gear) * FINAL;
   // Most torque the driven tyres can hold, referred back to the engine side.
   // Past this they let go — which is both why first gear spins up and why a
@@ -3389,7 +3566,7 @@ renderer.setAnimationLoop(() => {
   // nothing to saturated in one frame when a clutch comes back after a shift.
   // A tyre takes about a tenth of a second to break away, so this does too:
   // real wheelspin survives, single-frame transients do not.
-  const spinCap = gr !== 0 ? gripAcc * MASS * 0.58 * WHEEL_R / (Math.abs(gr) * EFF) : 1e9;
+  const spinCap = gr !== 0 ? gripAcc * MASS * DRIVE * WHEEL_R / (Math.abs(gr) * EFF) : 1e9;
   const spinRaw = clamp(slipped / Math.max(spinCap, 1), 0, 1.2);
   wheelSpin += (spinRaw - wheelSpin) * (1 - Math.exp(-dt * 10));
   force = clamp(force, -tractionN, tractionN);
@@ -3421,8 +3598,32 @@ renderer.setAnimationLoop(() => {
   // ---------- steering & lateral grip ----------
   const speedAbs = Math.abs(vLong);
   const maxSteer = (0.60 - 0.42 * smoothstep(4, 46, speedAbs)) * (1 + 0.25 * handbrake);
-  const steerRate = 6.6 - 2.2 * smoothstep(0, 40, speedAbs);
-  steerAngle += (steerIn * maxSteer - steerAngle) * (1 - Math.exp(-dt * steerRate));
+  // Rate limited, not an exponential approach. An exponential moves fastest at
+  // the very start, when the error is largest: a 120 ms tap took 55% of full
+  // lock and a 60 ms tap took 33% — a third of a second's worth of steering for
+  // half the time. A tap you cannot predict from how long you held it is the
+  // whole of "one touch turns too much". A constant rate makes the two
+  // proportional, and it is also what your arms do to a steering wheel.
+  //
+  // Coming back is four times quicker, and it is deliberately not the same
+  // number: let go and the wheel is straight in about five frames. Caster does
+  // that in a real car, and a delay nobody asked for reads as the car ignoring
+  // you. It applies to unwinding THROUGH centre too — flicking from left to
+  // right shouldn't wait out the lock you already had on — but only up to
+  // centre; from there it winds on at the normal rate rather than snapping to
+  // the opposite lock.
+  // A rate cap on its own is not enough either: it only bites while the error is
+  // large, so SMALL corrections arrive instantly and unfiltered, and the
+  // autopilot — which is a feedback loop tuned against the old lag — started
+  // hunting, with half again as many steering reversals. So both. The cap is
+  // what a tap runs into; the lag underneath is what everything smaller feels.
+  const want = steerIn * maxSteer;
+  const unwinding = (want - steerAngle) * steerAngle < 0;
+  const full = unwinding ? 0.08 : 0.32;    // seconds from centre to full lock
+  const lag  = unwinding ? 0.04 : 0.14;    // and the softness under the cap
+  const step = (want - steerAngle) * (1 - Math.exp(-dt / lag));
+  const cap = maxSteer / full * dt;
+  steerAngle += clamp(step, -cap, cap);
 
   // Cornering is capped by the grip actually available, so the car stays planted
   // until something takes that grip away. The handbrake locks the REAR axle
