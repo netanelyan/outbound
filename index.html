@@ -20,6 +20,15 @@
   }
   #title { position: absolute; top: 18px; left: 22px; font-size: 19px; font-weight: 600; letter-spacing: 2px; opacity: .8; }
   #dist  { position: absolute; top: 21px; right: 24px; font-size: 14px; opacity: .8; }
+  #trip  { position: absolute; top: 42px; right: 24px; font-size: 11px; letter-spacing: 1.5px; opacity: .45; }
+  /* Milestones. The point of these is that the road has no end, so the only
+     thing that can tell you how far you have come is how far you have come. */
+  #toast {
+    position: absolute; left: 50%; top: 15%; transform: translateX(-50%);
+    text-align: center; font-size: 30px; font-weight: 200; letter-spacing: 8px;
+    opacity: 0; transition: opacity .7s; will-change: opacity;
+  }
+  #toast small { display: block; font-size: 11px; letter-spacing: 3px; opacity: .65; margin-top: 10px; }
 
   #cluster { position: absolute; right: 30px; bottom: 26px; text-align: right; }
   #speedrow { display: flex; align-items: flex-end; justify-content: flex-end; gap: 10px; }
@@ -60,8 +69,17 @@
   #stall { position: absolute; left: 50%; top: 46%; transform: translateX(-50%); text-align: center; font-size: 22px; letter-spacing: 3px; color: #ff6b5b; display: none; }
   #stall small { display: block; font-size: 12px; letter-spacing: 2px; opacity: .8; margin-top: 8px; color: #fff; }
 
-  #help { position: absolute; bottom: 24px; left: 22px; font-size: 12.5px; line-height: 1.85; opacity: .85; transition: opacity 1.5s; }
-  #help kbd, #pickhint kbd { background: rgba(255,255,255,.16); border-radius: 4px; padding: 1px 6px; font: inherit; font-size: 11.5px; }
+  /* The route, drawn ahead and behind. On a road with no end the one thing you
+     cannot get from the view out of the windscreen is what shape the next mile
+     is, and that is the only navigation this needs. */
+  #minimap { position: absolute; bottom: 22px; left: 20px; opacity: .82; }
+  #maplabel { position: absolute; bottom: 214px; left: 24px; font-size: 9.5px; letter-spacing: 3px; opacity: .38; }
+  #pickhint kbd { background: rgba(255,255,255,.16); border-radius: 4px; padding: 1px 6px; font: inherit; font-size: 11.5px; }
+  #keys {
+    max-width: 660px; margin-top: 6px; font-size: 11px; line-height: 2.0;
+    text-align: center; opacity: .42;
+  }
+  #keys b { font-weight: 600; background: rgba(255,255,255,.14); border-radius: 4px; padding: 1px 6px; font-size: 10.5px; }
 
   /* Car picker. Sits over the scene rather than replacing it, and the gradient
      runs out before the bottom of the screen so the car you are choosing is
@@ -102,6 +120,8 @@
 <div id="hud">
   <div id="title">OUTBOUND</div>
   <div id="dist">0.0 km</div>
+  <div id="trip"></div>
+  <div id="toast"></div>
 
   <div id="clutchlamp">CLUTCH</div>
   <div id="gear">N</div>
@@ -114,19 +134,21 @@
 
   <div id="stall">STALLED<small>hold SHIFT to restart</small></div>
 
-  <div id="help">
-    <kbd>W</kbd>/<kbd>S</kbd> gas / brake &nbsp; <kbd>A</kbd>/<kbd>D</kbd> steer &nbsp; <kbd>Space</kbd> handbrake<br>
-    <kbd>Shift</kbd> clutch &mdash; <em>hold it to change gear</em> &nbsp; <kbd>1</kbd>–<kbd>6</kbd> gears &nbsp; <kbd>Q</kbd>/<kbd>E</kbd> down / up<br>
-    to pull away: hold <kbd>Shift</kbd>, select <kbd>1</kbd>, rev up, then ease off<br>
-    <kbd>R</kbd> reverse &nbsp; <kbd>0</kbd> neutral &nbsp; <kbd>T</kbd> back to auto<br>
-    <kbd>C</kbd> camera &nbsp; <kbd>V</kbd> car / mode / weather &nbsp; <kbd>P</kbd> fresh car &nbsp; <kbd>M</kbd> sound
-  </div>
+  <canvas id="minimap" width="188" height="188"></canvas>
+  <div id="maplabel">ROUTE</div>
+</div>
 </div>
 
 <div id="pick">
   <div id="picktitle">OUTBOUND</div>
   <div id="pickrows"></div>
-  <div id="pickhint"><kbd>&uarr;</kbd><kbd>&darr;</kbd> row &nbsp;&middot;&nbsp; <kbd>&larr;</kbd><kbd>&rarr;</kbd> choose &nbsp;&middot;&nbsp; <kbd>Enter</kbd> drive &nbsp;&middot;&nbsp; <kbd>V</kbd> to change later</div>
+  <div id="keys">
+    <b>W</b>/<b>S</b> gas &amp; brake &nbsp; <b>A</b>/<b>D</b> steer &nbsp; <b>Space</b> handbrake &nbsp; <b>C</b> camera<br>
+    <b>Shift</b> clutch &mdash; hold it to change gear &nbsp; <b>1</b>&ndash;<b>6</b> gears &nbsp; <b>Q</b>/<b>E</b> down / up<br>
+    to pull away: hold <b>Shift</b>, select <b>1</b>, rev up, then ease off &nbsp; <b>R</b> reverse &nbsp; <b>0</b> neutral<br>
+    <b>T</b> back to auto &nbsp; <b>P</b> fresh car &nbsp; <b>M</b> sound &nbsp; <b>Esc</b> these settings
+  </div>
+  <div id="pickhint"><kbd>&uarr;</kbd><kbd>&darr;</kbd> row &nbsp;&middot;&nbsp; <kbd>&larr;</kbd><kbd>&rarr;</kbd> choose &nbsp;&middot;&nbsp; <kbd>Enter</kbd> apply and drive &nbsp;&middot;&nbsp; <kbd>Esc</kbd> back out</div>
 </div>
 
 <script type="importmap">
@@ -137,7 +159,9 @@
 import * as THREE from 'three';
 
 // ================= world constants =================
-const SEG = 3, CHUNK = 60, HALF = 5;
+const SEG = 3, CHUNK = 60;
+// Lane width, and how far apart the road decides to be a different road.
+const LANE_W = 3.6, LANE_BLK = 620;
 const AHEAD = 5, BEHIND = 2;
 
 // ================= noise / helpers =================
@@ -203,22 +227,58 @@ function getPose(s) {
   };
 }
 
+// ================= how wide the road is =================
+// Lanes per direction rather than a total, because that is what a road actually
+// has: `l` is oncoming, `r` is yours, and the divider stays at d = 0 whatever
+// happens either side of it. New lanes are added at the OUTSIDE, so a car in
+// lane 1 is still in lane 1 after the road has grown a third — which is the
+// property the traffic AI needs and the one a symmetric half-width cannot give.
+// Filled into a shared object: this is called several times per frame per car,
+// and a two-element array each time is the kind of garbage that shows up as a
+// stutter rather than as a lower framerate.
+const lanes = { l: 1, r: 1 };
+const LANE_2 = [1, 1], LANE_3 = [1, 2], LANE_4 = [2, 2], LANE_5 = [2, 3];
+function laneSpec(i) {
+  const h = hash2(i * 17 + 3, i * 29 + 11);
+  if (h < 0.40) return LANE_2;      // ordinary two-lane road
+  if (h < 0.63) return LANE_3;      // a climbing lane opens up on your side
+  if (h < 0.84) return LANE_4;      // dual carriageway
+  return LANE_5;                    // five across, three of them yours
+}
+function lanesAt(s) {
+  const f = Math.max(0, s) / LANE_BLK, i = Math.floor(f);
+  const a = laneSpec(i), b = laneSpec(i + 1);
+  // ~85 m of taper at the end of each block. The road widens smoothly while the
+  // new lane's own line starts straight away, which is exactly how a lane
+  // addition is painted: the edge peels away and the line runs on beside it.
+  const t = smoothstep(0.863, 1, f - i);
+  lanes.l = a[0] + (b[0] - a[0]) * t;
+  lanes.r = a[1] + (b[1] - a[1]) * t;
+  return lanes;
+}
+// signed: negative d is the oncoming carriageway
+const edgeAt = (s, d) => (d < 0 ? lanesAt(s).l : lanesAt(s).r) * LANE_W;
+
 // Four octaves, and the amplitude of each grows with distance from the road.
 // Near the verge the ground has to stay flat enough to drive on; a kilometre out
 // it wants to be a landform, or the horizon reads as a flat green sea.
 // RELIEF is knocked right down in the city: streets are cut and levelled, and a
 // block of flats pitched over a moorland fold reads as a landslide.
 let RELIEF = 1;
-function terrainY(roadY, x, z, absd) {
-  const t = smoothstep(7, 52, absd) * RELIEF;
+// Everything here is measured from the EDGE of the tarmac rather than from the
+// centre line, because the road is no longer a fixed width — a five-lane stretch
+// would otherwise have hills growing through the outside lane.
+function terrainY(roadY, x, z, absd, edge) {
+  const beyond = Math.max(0, absd - edge);
+  const t = smoothstep(2, 47, beyond) * RELIEF;
   const n0 = vnoise(x * 0.0013, z * 0.0013);   // hills
   const n2 = vnoise(x * 0.0040, z * 0.0040);   // folds
   const n1 = vnoise(x * 0.0200, z * 0.0200);   // hummocks
   const n3 = vnoise(x * 0.0900, z * 0.0900);   // scrub-scale roughness
-  const relief = (n0 - 0.5) * 2 * (9 + absd * 0.36)
-               + (n2 - 0.5) * 2 * (5 + absd * 0.15)
+  const relief = (n0 - 0.5) * 2 * (9 + beyond * 0.36)
+               + (n2 - 0.5) * 2 * (5 + beyond * 0.15)
                + (n1 - 0.5) * 4.5 + (n3 - 0.5) * 1.2;
-  return roadY + t * relief - 0.45 * smoothstep(5, 10, absd);
+  return roadY + t * relief - 0.45 * smoothstep(0, 5, beyond);
 }
 
 // project a world point onto the road frame; returns ground height, lateral offset, arc length
@@ -240,8 +300,10 @@ function probe(x, z, sHint) {
   const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
   const d = (x - p.x) * rx + (z - p.z) * rz;
   const ad = Math.abs(d);
-  const y = terrainY(p.y, x, z, ad) + 0.07 * (1 - smoothstep(HALF, HALF + 1.5, ad));
-  return { y, d, s: sHint };
+  const L = lanesAt(sHint);
+  const el = L.l * LANE_W, er = L.r * LANE_W, edge = d < 0 ? el : er;
+  const y = terrainY(p.y, x, z, ad, edge) + 0.07 * (1 - smoothstep(edge, edge + 1.5, ad));
+  return { y, d, s: sHint, el, er };
 }
 
 // ================= renderer =================
@@ -467,52 +529,67 @@ addEventListener('resize', () => {
 // the lane markings at their real width instead of approximating them. The tile
 // is 24 m long, which is two full dash cycles and long enough that you have to
 // look for the repeat.
-const ROAD_TILE = 24, ROAD_PX = 1024;
-function makeRoadTexture(dashed) {
+const ROAD_TILE = 24, ROAD_PX = 1024, ROAD_W_PX = 256;
+// The tarmac only. Every marking has moved out into geometry, because a texture
+// stretched across the width can paint the lines for one lane count and no more,
+// and this road is anywhere between two and five lanes wide. What is left tiles
+// in both directions, so the aggregate is the same size however wide the road
+// happens to be at that point rather than being stretched out across it.
+function makeRoadTexture() {
   const c = document.createElement('canvas');
-  c.width = 256; c.height = ROAD_PX;
+  c.width = ROAD_W_PX; c.height = ROAD_PX;
   const g = c.getContext('2d');
-  const H = ROAD_PX, PM = H / ROAD_TILE;       // pixels per metre along the road
-  g.fillStyle = '#37393f'; g.fillRect(0, 0, 256, H);
+  const W = ROAD_W_PX, H = ROAD_PX;
+  g.fillStyle = '#37393f'; g.fillRect(0, 0, W, H);
   for (let i = 0; i < 28000; i++) {           // aggregate
     const v = 44 + Math.random() * 38 | 0;
     g.fillStyle = `rgba(${v},${v},${v + 6},.55)`;
-    g.fillRect(Math.random() * 256 | 0, Math.random() * H | 0, 2, 2);
+    g.fillRect(Math.random() * W | 0, Math.random() * H | 0, 2, 2);
   }
-  // Four polished wheel tracks — two lanes, two wheels each. Traffic burnishes
-  // the stone smooth along these and leaves the rest coarse.
-  g.fillStyle = 'rgba(22,23,27,.26)';
-  for (const u of [0.16, 0.34, 0.66, 0.84]) g.fillRect(u * 256 - 11, 0, 22, H);
   // Old patches, laid darker than the road around them and squared off at the
   // edges. Nothing says "resurfaced twice" like a rectangle of newer tarmac.
   for (let i = 0; i < 7; i++) {
     const pw = 40 + Math.random() * 90, ph = 60 + Math.random() * 220;
     g.fillStyle = `rgba(${26 + Math.random() * 14 | 0},${27 + Math.random() * 14 | 0},32,.42)`;
-    g.fillRect(Math.random() * 256 | 0, Math.random() * H | 0, pw, ph);
+    g.fillRect(Math.random() * W | 0, Math.random() * H | 0, pw, ph);
   }
   for (let i = 0; i < 90; i++) {              // tar-sealed cracks
     g.strokeStyle = 'rgba(20,20,24,.5)'; g.lineWidth = 1 + Math.random();
     g.beginPath();
-    let px = Math.random() * 256, py = Math.random() * H;
+    let px = Math.random() * W, py = Math.random() * H;
     g.moveTo(px, py);
     for (let k = 0; k < 5; k++) g.lineTo(px += (Math.random() - 0.5) * 30, py += (Math.random() - 0.5) * 40);
     g.stroke();
   }
-  // Markings. Edge lines are identical in both variants so the two textures meet
-  // seamlessly where the centre line changes type mid-road.
-  g.fillStyle = '#cfccc3';
-  g.fillRect(9, 0, 7, H); g.fillRect(240, 0, 7, H);
-  if (dashed) {
-    // 4 m of paint, 8 m of nothing — a 12 m cycle, so it tiles twice
-    for (let m = 0; m < ROAD_TILE; m += 12) g.fillRect(122, m * PM, 8, 4 * PM);
-  } else {
-    g.fillRect(117, 0, 6, H); g.fillRect(133, 0, 6, H);   // double solid
-  }
-  for (let i = 0; i < 5200; i++) {            // scuff the paint back
-    const x = Math.random() * 256 | 0, y = Math.random() * H | 0;
-    g.fillStyle = `rgba(60,60,64,${Math.random() * 0.5})`;
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return tex;
+}
+
+// Every kind of stripe the road can carry, side by side in one texture, so a
+// chunk's entire paintwork is one mesh and one draw call however many lanes it
+// has. A strip of geometry picks its stripe by the u range it samples.
+const MK = { solid: 0.010, solid2: 0.240, dash: 0.260, dash2: 0.490, worn: 0.510, worn2: 0.740 };
+function makeMarkTexture() {
+  const W = 128, H = ROAD_PX, PM = H / ROAD_TILE;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  g.clearRect(0, 0, W, H);
+  g.fillStyle = '#cfccc3'; g.fillRect(0, 0, 32, H);                    // solid
+  // 4 m of paint, 8 m of nothing — a 12 m cycle, so it tiles twice in 24 m
+  for (let m = 0; m < ROAD_TILE; m += 12) { g.fillStyle = '#cfccc3'; g.fillRect(32, m * PM, 32, 4 * PM); }
+  g.fillStyle = 'rgba(20,21,25,.30)'; g.fillRect(64, 0, 32, H);        // wheel polish
+  // scuff the paint back, but only where there is paint to scuff
+  g.globalCompositeOperation = 'source-atop';
+  for (let i = 0; i < 4000; i++) {
+    const x = Math.random() * 96 | 0, y = Math.random() * H | 0;
+    g.fillStyle = `rgba(60,60,64,${Math.random() * 0.55})`;
     g.fillRect(x, y, 1, 2);
   }
+  g.globalCompositeOperation = 'source-over';
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapT = THREE.RepeatWrapping;
@@ -523,9 +600,16 @@ function makeRoadTexture(dashed) {
 // sun is worth paying for. Everything else out here is a rough dielectric, where
 // Lambert is visually indistinguishable and far cheaper per pixel — and terrain
 // and scrub are most of the screen, every frame.
-const roadMats = [false, true].map(d => new THREE.MeshStandardMaterial({
-  map: makeRoadTexture(d), roughness: 0.82, metalness: 0.0,
-}));
+const roadMat = new THREE.MeshStandardMaterial({
+  map: makeRoadTexture(), roughness: 0.82, metalness: 0.0,
+});
+const roadMats = [roadMat];        // applyConditions still wets everything down
+// Paint sits ON the road, so it never writes depth and it gets a polygon offset:
+// 15 mm of physical lift is under the depth buffer's resolution at 300 m.
+const markMat = new THREE.MeshLambertMaterial({
+  map: makeMarkTexture(), transparent: true, depthWrite: false,
+  polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3,
+});
 // Real roads paint a solid line wherever you cannot see far enough ahead to
 // overtake — round bends and over crests — so which one you get comes straight
 // out of the spline's own curvature and the second difference of its elevation
@@ -678,9 +762,10 @@ const treeMat = new THREE.MeshLambertMaterial({ flatShading: true });
 
 // ================= chunks =================
 const chunks = new Map();
-// Rings of terrain out to 760 m. The near ones are tight because that is where
-// the road cutting reads; the far ones are only there to give the fog a horizon.
-const OFFS = [5, 5.6, 7, 9.5, 14, 24, 42, 78, 135, 225, 350, 530, 760];
+// Rings of terrain out to 755 m BEYOND the edge of the tarmac, wherever that is
+// on a road that changes width. The near ones are tight because that is where the
+// cutting reads; the far ones only exist to give the fog a horizon.
+const OFFS = [0, 0.6, 2, 4.5, 9, 19, 37, 73, 130, 220, 345, 525, 755];
 const vergeCol = new THREE.Color(0x63702f);    // mown grass at the road edge
 const gravelCol = new THREE.Color(0x6f6553);   // shoulder
 const scrubCol = new THREE.Color(0x3d2a1e);    // dark heather
@@ -689,6 +774,38 @@ const sageCol = new THREE.Color(0x5c5a35);     // grey-green scrub
 
 const BUSHES = 640;
 
+// The height of the terrain MESH at a point, which is not the same thing as the
+// height the terrain formula gives you there. The ribbon is a coarse fan — the
+// outer rings are hundreds of metres apart — so between two rings the surface is
+// a straight line, and the formula's value in the middle can sit metres above or
+// below it. Anything placed by formula therefore floats or sinks; this
+// interpolates the same four vertices the triangle is actually made of.
+function groundAt(s, side, dist) {
+  const kf = Math.max(0, s / SEG), k0 = Math.floor(kf), tk = kf - k0;
+  ensurePoints(k0 + 2);
+  const beyond = Math.max(0, dist - edgeAt(s, side));
+  let j = 0;
+  while (j < OFFS.length - 2 && OFFS[j + 1] < beyond) j++;
+  const tj = clamp((beyond - OFFS[j]) / (OFFS[j + 1] - OFFS[j]), 0, 1);
+  let h = 0;
+  for (let a = 0; a < 2; a++) {
+    const p = pts[k0 + a];
+    const e = edgeAt((k0 + a) * SEG, side);
+    const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
+    for (let b = 0; b < 2; b++) {
+      const off = e + OFFS[j + b];
+      const x = p.x + rx * side * off, z = p.z + rz * side * off;
+      h += terrainY(p.y, x, z, off, e) * (a ? tk : 1 - tk) * (b ? tj : 1 - tj);
+    }
+  }
+  return h;
+}
+// How built up the roadside is here. In the city it never lets up; out on the
+// moor you come through something every few kilometres. Passing THROUGH places
+// is most of what stops a long drive feeling like one looped kilometre.
+const builtUp = s => MODES[modeIndex].city ? 1
+  : smoothstep(0.665, 0.80, vnoise(s * 0.0014, 7.3));
+
 function buildChunk(ci) {
   const i0 = ci * CHUNK;
   ensurePoints(i0 + CHUNK + 1);
@@ -696,34 +813,95 @@ function buildChunk(ci) {
   const solids = [];
   const n = CHUNK + 1;
 
-  { // Road ribbon, split into runs wherever the centre line changes type. Each
-    // run ends on the same vertex row the next one begins with, so the join is
-    // shared geometry rather than two edges that have to be made to line up.
-    let k0 = 0;
-    while (k0 < CHUNK) {
-      const dashed = centreDashed((i0 + k0) * SEG);
-      let k1 = k0 + 1;
-      while (k1 < CHUNK && centreDashed((i0 + k1) * SEG) === dashed) k1++;
-      const rows = k1 - k0 + 1;
-      const pos = new Float32Array(rows * 6), uv = new Float32Array(rows * 4), idx = [];
-      for (let k = 0; k < rows; k++) {
-        const p = pts[i0 + k0 + k];
-        const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
-        const y = p.y + 0.07, v = (i0 + k0 + k) * SEG / ROAD_TILE;
-        pos.set([p.x - rx * HALF, y, p.z - rz * HALF, p.x + rx * HALF, y, p.z + rz * HALF], k * 6);
-        uv.set([0, v, 1, v], k * 4);
-        if (k < rows - 1) { const a = k * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
-      }
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-      geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-      geo.setIndex(idx); geo.computeVertexNormals();
-      group.add(new THREE.Mesh(geo, roadMats[dashed ? 1 : 0]));
-      k0 = k1;
+  // Where the tarmac ends on each side of this chunk's rows, and how many lanes
+  // are open. All four are read constantly below, and all four vary along the
+  // chunk wherever a lane is opening or closing.
+  const sAt = k => (i0 + k) * SEG;
+  const eL = k => lanesAt(sAt(k)).l * LANE_W;
+  const eR = k => lanesAt(sAt(k)).r * LANE_W;
+  const nL = k => lanesAt(sAt(k)).l;
+  const nR = k => lanesAt(sAt(k)).r;
+
+  { // Road ribbon. One mesh now rather than one per marking type, because the
+    // markings have moved out of the texture — a texture stretched across the
+    // width cannot paint four lines on one stretch and one on the next.
+    const pos = new Float32Array(n * 6), uv = new Float32Array(n * 4), idx = [];
+    for (let k = 0; k < n; k++) {
+      const p = pts[i0 + k];
+      const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
+      const y = p.y + 0.07, v = sAt(k) / ROAD_TILE;
+      const l = eL(k), r = eR(k);
+      pos.set([p.x - rx * l, y, p.z - rz * l, p.x + rx * r, y, p.z + rz * r], k * 6);
+      // u in metres over a 6 m tile, so the aggregate is the same size on a
+      // two-lane road as on a five-lane one instead of being stretched across it
+      uv.set([-l / 6, v, r / 6, v], k * 4);
+      if (k < n - 1) { const a = k * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
     }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    geo.setIndex(idx); geo.computeVertexNormals();
+    group.add(new THREE.Mesh(geo, roadMat));
   }
 
-  { // terrain, one ribbon per side
+  { // Markings, as real geometry rather than paint on the road texture. A line is
+    // a ribbon 18 cm wide at a lateral offset, and which stripe of the marking
+    // texture it samples decides whether it comes out solid, broken, or the dark
+    // polish traffic leaves in a wheel track. Everything the chunk needs goes
+    // into one buffer, so a five-lane road with eleven separate strips of paint
+    // on it still draws in one call.
+    const mv = [], muv = [], mi = [];
+    const emit = (k0, k1, off, half, u0, u1) => {
+      for (let k = k0; k <= k1; k++) {
+        const p = pts[i0 + k];
+        const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
+        const d = off(k), y = p.y + 0.085, v = sAt(k) / ROAD_TILE;
+        const base = mv.length / 3;
+        mv.push(p.x + rx * (d - half), y, p.z + rz * (d - half),
+                p.x + rx * (d + half), y, p.z + rz * (d + half));
+        muv.push(u0, v, u1, v);
+        if (k < k1) mi.push(base, base + 1, base + 2, base + 1, base + 3, base + 2);
+      }
+    };
+    // Emit a strip only over the rows where it exists, so a lane line simply
+    // begins where its lane does instead of being drawn through solid tarmac.
+    const runs = (test, off, half, u0, u1) => {
+      let k = 0;
+      while (k <= CHUNK) {
+        if (!test(k)) { k++; continue; }
+        let k1 = k;
+        while (k1 + 1 <= CHUNK && test(k1 + 1)) k1++;
+        if (k1 > k) emit(k, k1, off, half, u0, u1);
+        k = k1 + 1;
+      }
+    };
+    const yes = () => true;
+    // edge lines, which follow the tarmac out and back as lanes come and go
+    emit(0, CHUNK, k => -eL(k) + 0.30, 0.09, MK.solid, MK.solid2);
+    emit(0, CHUNK, k => eR(k) - 0.30, 0.09, MK.solid, MK.solid2);
+    // the divider between the two directions, solid where you cannot see past
+    runs(k => centreDashed(sAt(k)), () => 0, 0.09, MK.dash, MK.dash2);
+    runs(k => !centreDashed(sAt(k)), () => -0.09, 0.075, MK.solid, MK.solid2);
+    runs(k => !centreDashed(sAt(k)), () => 0.09, 0.075, MK.solid, MK.solid2);
+    // lane dividers within each direction are always broken
+    for (let i = 1; i < 4; i++) {
+      runs(k => nL(k) > i + 0.02, () => -i * LANE_W, 0.08, MK.dash, MK.dash2);
+      runs(k => nR(k) > i + 0.02, () => i * LANE_W, 0.08, MK.dash, MK.dash2);
+      // and the polish two wheels leave down the middle of every lane that gets used
+      for (const w of [-0.85, 0.85]) {
+        runs(k => nL(k) > i - 0.98, () => -(i - 0.5) * LANE_W + w, 0.30, MK.worn, MK.worn2);
+        runs(k => nR(k) > i - 0.98, () => (i - 0.5) * LANE_W + w, 0.30, MK.worn, MK.worn2);
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(mv), 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(muv), 2));
+    geo.setIndex(mi);
+    geo.computeVertexNormals();
+    group.add(new THREE.Mesh(geo, markMat));
+  }
+
+  { // terrain, one ribbon per side, measured out from the edge of the tarmac
     const tmp = new THREE.Color();
     for (const side of [-1, 1]) {
       const cols = OFFS.length;
@@ -732,19 +910,20 @@ function buildChunk(ci) {
       for (let k = 0; k < n; k++) {
         const p = pts[i0 + k];
         const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
+        const edge = side < 0 ? eL(k) : eR(k);
         for (let j = 0; j < cols; j++) {
-          const d = side * OFFS[j], x = p.x + rx * d, z = p.z + rz * d;
+          const d = side * (edge + OFFS[j]), x = p.x + rx * d, z = p.z + rz * d;
           const o = (k * cols + j) * 3;
-          pos[o] = x; pos[o + 1] = terrainY(p.y, x, z, OFFS[j]); pos[o + 2] = z;
+          pos[o] = x; pos[o + 1] = terrainY(p.y, x, z, edge + OFFS[j], edge); pos[o + 2] = z;
           // The detail texture is mapped straight off world x/z at 9 m a tile,
           // so it stays put on the ground however the ribbon is shaped.
           uv[(k * cols + j) * 2] = x / 9; uv[(k * cols + j) * 2 + 1] = z / 9;
           // two noise scales: broad heather/bracken patches, then a finer mottle
           tmp.lerpColors(scrubCol, dryCol, vnoise(x * 0.012, z * 0.012));
           tmp.lerp(sageCol, vnoise(x * 0.05, z * 0.05) * 0.5);
-          if (OFFS[j] < 6.2) tmp.lerp(gravelCol, 0.7);
-          else if (OFFS[j] < 8) tmp.lerp(vergeCol, 0.6);
-          else if (OFFS[j] < 11) tmp.lerp(vergeCol, 0.25);
+          if (OFFS[j] < 1.3) tmp.lerp(gravelCol, 0.7);
+          else if (OFFS[j] < 3.1) tmp.lerp(vergeCol, 0.6);
+          else if (OFFS[j] < 6.1) tmp.lerp(vergeCol, 0.25);
           tmp.multiplyScalar(1 / GROUND_MEAN);   // give back what the mottle takes
           col[o] = tmp.r; col[o + 1] = tmp.g; col[o + 2] = tmp.b;
           if (k < n - 1 && j < cols - 1) {
@@ -765,16 +944,24 @@ function buildChunk(ci) {
   const rnd = mulberry32(ci * 2654435761 + 7);
   const CITY = MODES[modeIndex].city;
 
+  // One slow function of arc length, sampled once per chunk, that decides what
+  // kind of country this is: how wooded, and what colour the ground cover is. It
+  // turns over about every five kilometres, which is far enough apart that you
+  // notice having arrived somewhere different rather than watching it change.
+  const band = vnoise(sAt(0) * 0.00021, 3.1);
+
   if (!CITY) { // scrub — the whole chunk's vegetation in one draw call
     const im = new THREE.InstancedMesh(bushGeo, bushMat, BUSHES);
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
     const sc = new THREE.Vector3(), p3 = new THREE.Vector3(), col = new THREE.Color();
     for (let b = 0; b < BUSHES; b++) {
-      const p = pts[i0 + Math.floor(rnd() * CHUNK)];
+      const ki = Math.floor(rnd() * CHUNK), p = pts[i0 + ki], s = sAt(ki);
       const side = rnd() < 0.5 ? -1 : 1;
       const u = rnd();
-      // u squared crowds them near the road, where they are actually resolvable
-      const dist = 8 + u * u * 330;
+      // Measured out from the EDGE of the tarmac, not the centreline. On a
+      // five-lane stretch the tarmac reaches 10.8 m and the old fixed 8 m put
+      // gorse in the outside lane — which the car then bounced off.
+      const dist = edgeAt(s, side) + 1.4 + u * u * 320;
       const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
       // scatter ALONG the road, never across it — a lateral jitter this size
       // would plant bushes on the tarmac
@@ -787,10 +974,11 @@ function buildChunk(ci) {
       const r = (0.32 + rnd() * 0.80) * (1 + dist * 0.005);
       e.set(rnd() * 0.45, rnd() * 6.283, rnd() * 0.45);
       sc.set(r * (0.85 + rnd() * 0.5), r * (0.42 + rnd() * 0.45), r * (0.85 + rnd() * 0.5));
-      p3.set(x, terrainY(p.y, x, z, dist) + sc.y * 0.35, z);
+      p3.set(x, groundAt(s + j, side, dist) + sc.y * 0.35, z);
       m.compose(p3, q.setFromEuler(e), sc);
       im.setMatrixAt(b, m);
-      col.setHSL(0.055 + rnd() * 0.07, 0.30 + rnd() * 0.26, 0.13 + rnd() * 0.13, THREE.SRGBColorSpace);
+      col.setHSL(0.045 + band * 0.075 + rnd() * 0.05, 0.20 + band * 0.24 + rnd() * 0.20,
+                 0.10 + band * 0.05 + rnd() * 0.12, THREE.SRGBColorSpace);
       im.setColorAt(b, col);
     }
     im.instanceMatrix.needsUpdate = true;
@@ -799,34 +987,65 @@ function buildChunk(ci) {
     group.add(im);
   }
 
+  if (!CITY) { // loose stone. Cheap variety, and it breaks up the ground cover
+    // where the heather thins out.
+    const STONES = 150;
+    const im = new THREE.InstancedMesh(rockGeo, rockMat, STONES);
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+    const sc = new THREE.Vector3(), p3 = new THREE.Vector3();
+    for (let b = 0; b < STONES; b++) {
+      const ki = Math.floor(rnd() * CHUNK), p = pts[i0 + ki], s = sAt(ki);
+      const side = rnd() < 0.5 ? -1 : 1, u = rnd();
+      const dist = edgeAt(s, side) + 2 + u * u * 180;
+      const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
+      const x = p.x + rx * side * dist, z = p.z + rz * side * dist;
+      const r = 0.22 + rnd() * 0.55;
+      e.set(rnd() * 3, rnd() * 6.283, rnd() * 3);
+      sc.set(r, r * (0.5 + rnd() * 0.4), r * (0.8 + rnd() * 0.5));
+      p3.set(x, groundAt(s, side, dist) + sc.y * 0.25, z);
+      m.compose(p3, q.setFromEuler(e), sc);
+      im.setMatrixAt(b, m);
+    }
+    im.instanceMatrix.needsUpdate = true;
+    im.computeBoundingSphere();
+    group.add(im);
+  }
+
   if (!CITY) { // Trees — well back from the verge, in loose stands rather than
     // scattered evenly, because nothing on a hillside grows on a uniform
     // distribution.
-    const TREES = 72;
+    const TREES = Math.round(16 + band * band * 150);
     const im = new THREE.InstancedMesh(treeGeo, treeMat, TREES);
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
     const sc = new THREE.Vector3(), p3 = new THREE.Vector3(), col = new THREE.Color();
-    let cx = 0, cz = 0, cy = 0, left = 0;
+    let cx = 0, cz = 0, cs = 0, cd = 0, cside = 1, crx = 0, crz = 0, cfx = 0, cfz = 0, left = 0;
     for (let b = 0; b < TREES; b++) {
       if (left <= 0) {                             // start a new stand
         left = 4 + Math.floor(rnd() * 9);
-        const p = pts[i0 + Math.floor(rnd() * CHUNK)];
-        const side = rnd() < 0.5 ? -1 : 1;
+        const ki = Math.floor(rnd() * CHUNK), p = pts[i0 + ki];
+        cs = sAt(ki);
+        cside = rnd() < 0.5 ? -1 : 1;
         const u = rnd();
-        const dist = 40 + u * u * 290;
-        cx = p.x + Math.cos(p.heading) * side * dist;
-        cz = p.z + Math.sin(p.heading) * side * dist;
-        cy = p.y; e.set(0, 0, 0);
+        cd = edgeAt(cs, cside) + 22 + u * u * 280;
+        crx = Math.cos(p.heading); crz = Math.sin(p.heading);
+        cfx = Math.sin(p.heading); cfz = -Math.cos(p.heading);
+        cx = p.x + crx * cside * cd;
+        cz = p.z + crz * cside * cd;
       }
       left--;
-      const x = cx + (rnd() - 0.5) * 34, z = cz + (rnd() - 0.5) * 34;
-      const s = 0.85 + rnd() * 1.15;
+      const jx = (rnd() - 0.5) * 34, jz = (rnd() - 0.5) * 34;
+      const x = cx + jx, z = cz + jz;
+      // Split the scatter into along-road and across-road parts, so each tree
+      // knows its OWN station and its OWN distance from the tarmac. Using the
+      // stand's numbers for all of them is what left them hanging in the air.
+      const across = (jx * crx + jz * crz) * cside, along = jx * cfx + jz * cfz;
+      const s = 1.5 + rnd() * 2.4;
       e.set(0, rnd() * 6.283, (rnd() - 0.5) * 0.14);     // a slight lean off vertical
-      sc.set(s * (0.82 + rnd() * 0.36), s * (0.85 + rnd() * 0.55), s * (0.82 + rnd() * 0.36));
-      p3.set(x, terrainY(cy, x, z, Math.hypot(x - cx, z - cz) + 40) - 0.15, z);
+      sc.set(s * (0.30 + rnd() * 0.13), s * (0.30 + rnd() * 0.2), s * (0.30 + rnd() * 0.13));
+      p3.set(x, groundAt(cs + along, cside, Math.max(2, cd + across)) - 0.15, z);
       m.compose(p3, q.setFromEuler(e), sc);
       im.setMatrixAt(b, m);
-      col.setHSL(0.235 + rnd() * 0.10, 0.20 + rnd() * 0.24, 0.055 + rnd() * 0.06, THREE.SRGBColorSpace);
+      col.setHSL(0.225 + band * 0.05 + rnd() * 0.09, 0.18 + rnd() * 0.26, 0.05 + rnd() * 0.065, THREE.SRGBColorSpace);
       im.setColorAt(b, col);
     }
     im.instanceMatrix.needsUpdate = true;
@@ -837,16 +1056,16 @@ function buildChunk(ci) {
 
   if (!CITY) { // boulders — sparse, and the only thing out here you can hit
     for (let t = 0; t < 5; t++) {
-      const p = pts[i0 + Math.floor(rnd() * CHUNK)];
+      const ki = Math.floor(rnd() * CHUNK), p = pts[i0 + ki], s = sAt(ki);
       const side = rnd() < 0.5 ? -1 : 1;
-      const dist = 12 + rnd() * 55;
+      const dist = edgeAt(s, side) + 7 + rnd() * 50;
       const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
       const x = p.x + rx * side * dist, z = p.z + rz * side * dist;
       const r = 1.0 + rnd() * 1.1;
       const rock = new THREE.Mesh(rockGeo, rockMat);
       rock.scale.set(r, r * (0.6 + rnd() * 0.4), r * (0.8 + rnd() * 0.4));
       rock.rotation.set(rnd(), rnd() * 6.283, rnd());
-      rock.position.set(x, terrainY(p.y, x, z, dist) + r * 0.35, z);
+      rock.position.set(x, groundAt(s, side, dist) + r * 0.35, z);
       group.add(rock);
       solids.push({ x, z, r: r * 0.8 });
     }
@@ -857,54 +1076,86 @@ function buildChunk(ci) {
     const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
     for (const side of [-1, 1]) {
       const post = new THREE.Mesh(postGeo, postMat);
-      post.position.set(p.x + rx * side * 6.3, p.y + 0.48, p.z + rz * side * 6.3);
+      const po = (side < 0 ? eL(k) : eR(k)) + 1.3;
+      post.position.set(p.x + rx * side * po, p.y + 0.48, p.z + rz * side * po);
       const cap = new THREE.Mesh(capGeo, capMat);
       cap.position.set(post.position.x, p.y + 0.89, post.position.z);
       group.add(post, cap);
     }
   }
 
-  if (CITY) {
-    // Blocks down both sides, each rotated to sit square to the road. They are
-    // merged per chunk rather than instanced because instancing would force one
-    // box geometry, and one box geometry means one set of UVs — which is exactly
-    // the thing buildingBox() exists to avoid.
+  { // Anywhere built up. In the city that is everywhere; on the moor it is the
+    // village you come through every few kilometres, set further back off the
+    // road and lower, so the same code makes both. Merged per chunk rather than
+    // instanced, because instancing forces one box geometry and therefore one
+    // set of UVs — exactly the thing buildingBox() exists to avoid.
     const shells = [], poles = [], lamps = [];
     const tint = new THREE.Color();
-    for (let k = 1; k < CHUNK; k += 3 + Math.floor(rnd() * 3)) {
+    for (let k = 1; k < CHUNK; k += (CITY ? 3 : 4) + Math.floor(rnd() * 3)) {
+      const u = builtUp(sAt(k));
+      if (u < 0.06) continue;
       const p = pts[i0 + k];
       const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
       for (const side of [-1, 1]) {
-        if (rnd() < 0.12) continue;                       // the odd gap or side street
+        if (rnd() > u * 0.90) continue;      // thins out toward the edge of a place
         const along = 9 + rnd() * 13, deep = 11 + rnd() * 15;
-        // squared so most of the skyline is low and the towers are occasional
-        const tall = 7 + rnd() * rnd() * 34;
-        const set = 10.5 + rnd() * 3;
+        // squared so most of the skyline is low and the towers are occasional,
+        // and scaled right down out of town — villages are not full of towers
+        const tall = (7 + rnd() * rnd() * 34) * (CITY ? 1 : 0.20 + u * 0.22);
+        // set well back out of town, so houses sit behind the scrub rather than
+        // growing out of it
+        const set = (CITY ? 10.5 + rnd() * 3 : 17 + rnd() * 12) + edgeAt(sAt(k), side) - LANE_W;
         const off = set + deep / 2;
         const x = p.x + rx * side * off, z = p.z + rz * side * off;
         tint.setHSL(0.07 + rnd() * 0.10, 0.05 + rnd() * 0.10, 0.42 + rnd() * 0.26, THREE.SRGBColorSpace);
         const b = buildingBox(along, tall, deep, tint);
         b.rotateY(Math.PI / 2 - p.heading);
         // sunk a metre so no gap opens under it wherever the ground still rolls
-        b.translate(x, terrainY(p.y, x, z, off) + tall / 2 - 1.0, z);
+        b.translate(x, groundAt(sAt(k), side, off) + tall / 2 - 1.0, z);
         shells.push(b);
         // Solid, on the same list the boulders use. A circle is a poor fit for a
-        // building, but it only has to stop you driving through one, and at 12 m
-        // from the centreline the circle never reaches the carriageway.
+        // building, but it only has to stop you driving through one, and this far
+        // out the circle never reaches the carriageway.
         solids.push({ x, z, r: (along + deep) / 4 });
       }
     }
-    group.add(new THREE.Mesh(mergeGeos(shells, ['position', 'normal', 'uv', 'color']), buildingMat));
+    // Far settlements: a hamlet across the valley, hundreds of metres off the
+    // road and never reached. They cost almost nothing — a handful of boxes with
+    // no collision — and they are what makes the middle distance look inhabited
+    // rather than like scenery that stops existing past the verge.
+    if (!CITY) for (let f = 0; f < 3; f++) {
+      if (rnd() > 0.34) continue;
+      const ki = Math.floor(rnd() * CHUNK), p = pts[i0 + ki], st = sAt(ki);
+      const side = rnd() < 0.5 ? -1 : 1;
+      const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
+      const far = 150 + rnd() * 320;
+      const fx = p.x + rx * side * far, fz = p.z + rz * side * far;
+      const n = 3 + Math.floor(rnd() * 7);
+      for (let b = 0; b < n; b++) {
+        const ox = (rnd() - 0.5) * 90, oz = (rnd() - 0.5) * 90;
+        const along = ox * Math.sin(p.heading) - oz * Math.cos(p.heading);
+        const across = (ox * rx + oz * rz) * side;
+        const w = 7 + rnd() * 9, d = 7 + rnd() * 9, h = 4 + rnd() * rnd() * 9;
+        tint.setHSL(0.07 + rnd() * 0.09, 0.05 + rnd() * 0.09, 0.36 + rnd() * 0.24, THREE.SRGBColorSpace);
+        const g = buildingBox(w, h, d, tint);
+        g.rotateY(Math.PI / 2 - p.heading + (rnd() - 0.5) * 0.5);
+        g.translate(fx + ox, groundAt(st + along, side, Math.max(20, far + across)) + h / 2 - 0.8, fz + oz);
+        shells.push(g);
+      }
+    }
+    if (shells.length) group.add(new THREE.Mesh(mergeGeos(shells, ['position', 'normal', 'uv', 'color']), buildingMat));
 
     // Kerbs: a raised strip either side, which is what actually tells you where
-    // the carriageway ends once there is no verge to read.
-    for (const side of [-1, 1]) {
+    // the carriageway ends once there is no verge to read. City only — a village
+    // on a moorland road has a verge, not a pavement.
+    if (CITY) for (const side of [-1, 1]) {
       const rows = CHUNK + 1;
       const pos = new Float32Array(rows * 12), idx = [];
       for (let k = 0; k < rows; k++) {
         const p = pts[i0 + k];
         const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
-        const inner = HALF + 0.05, outer = HALF + 2.6;
+        const edge = side < 0 ? eL(k) : eR(k);
+        const inner = edge + 0.05, outer = edge + 2.6;
         const y = p.y + 0.07;
         pos.set([
           p.x + rx * side * inner, y, p.z + rz * side * inner,          // road edge
@@ -924,6 +1175,7 @@ function buildChunk(ci) {
     }
 
     for (let k = 4; k < CHUNK; k += 12) {   // street lighting, alternating sides
+      if (builtUp(sAt(k)) < 0.5) continue;
       const p = pts[i0 + k];
       const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
       const side = (k / 12 | 0) % 2 ? 1 : -1;
@@ -937,8 +1189,8 @@ function buildChunk(ci) {
       head.translate(x - rx * side * 0.9, base + 7.3, z - rz * side * 0.9);
       lamps.push(head);
     }
-    group.add(new THREE.Mesh(mergeGeos(poles), poleMat));
-    group.add(new THREE.Mesh(mergeGeos(lamps), lampMat));
+    if (poles.length) group.add(new THREE.Mesh(mergeGeos(poles), poleMat));
+    if (lamps.length) group.add(new THREE.Mesh(mergeGeos(lamps), lampMat));
   }
 
   group.userData.solids = solids;
@@ -1346,10 +1598,19 @@ function selectCar(i) {
 }
 function openPicker() {
   picking = true;
+  pend.car = carIndex; pend.mode = modeIndex; pend.cond = condIndex;
+  paintPicker();
   pickEl.style.display = 'flex';
   for (const k in keys) keys[k] = false;   // no key survives the overlay opening
 }
-function closePicker() {
+// Apply only what actually changed. applyMode in particular rebuilds the world,
+// so it must not run just because the window was opened and shut again.
+function closePicker(apply) {
+  if (apply) {
+    if (pend.car !== carIndex) selectCar(pend.car);
+    if (pend.mode !== modeIndex) applyMode(pend.mode);
+    if (pend.cond !== condIndex) applyConditions(pend.cond);
+  }
   picking = false;
   pickEl.style.display = 'none';
   initAudio();                              // this counts as the user gesture
@@ -1407,10 +1668,15 @@ function applyMode(i) {
 // down move between rows, left and right along one. Every setter takes effect
 // the moment you land on it, and the scene behind the overlay is live, so you
 // are choosing by looking at the thing rather than at a description of it.
+// Staged, not live. Arrowing along a row moves a highlight; nothing actually
+// happens to the car or the world until you apply it, and backing out with Esc
+// leaves everything exactly as it was. Changing mode tears down and rebuilds
+// every chunk, which is not something to do to somebody who was only looking.
+const pend = { car: 0, mode: 0, cond: 1 };
 const PICK = [
-  { label: 'CAR', list: CARS, get: () => carIndex, set: selectCar },
-  { label: 'MODE', list: MODES, get: () => modeIndex, set: applyMode },
-  { label: 'WEATHER', list: CONDITIONS, get: () => condIndex, set: applyConditions },
+  { label: 'CAR', list: CARS, key: 'car' },
+  { label: 'MODE', list: MODES, key: 'mode' },
+  { label: 'WEATHER', list: CONDITIONS, key: 'cond' },
 ];
 let pickRow = 0;
 {
@@ -1427,7 +1693,7 @@ let pickRow = 0;
       const b = document.createElement('button');
       b.className = 'pcard';
       b.innerHTML = '<b>' + item.name + '</b><i>' + item.blurb + '</i><em>' + item.stats + '</em>';
-      b.addEventListener('click', () => { pickRow = r; row.set(i); paintPicker(); });
+      b.addEventListener('click', () => { pickRow = r; pend[row.key] = i; paintPicker(); });
       cards.appendChild(b);
     });
     el.appendChild(lab); el.appendChild(cards);
@@ -1438,15 +1704,15 @@ let pickRow = 0;
 function paintPicker() {
   PICK.forEach((row, r) => {
     row.el.className = r === pickRow ? 'prow active' : 'prow';
-    const sel = row.get();
+    const sel = pend[row.key];
     for (let i = 0; i < row.cards.children.length; i++)
       row.cards.children[i].className = i === sel ? 'pcard on' : 'pcard';
   });
 }
 function pickKey(code) {
   const row = PICK[pickRow], n = row.list.length;
-  if (code === 'ArrowLeft') row.set((row.get() + n - 1) % n);
-  else if (code === 'ArrowRight') row.set((row.get() + 1) % n);
+  if (code === 'ArrowLeft') pend[row.key] = (pend[row.key] + n - 1) % n;
+  else if (code === 'ArrowRight') pend[row.key] = (pend[row.key] + 1) % n;
   else if (code === 'ArrowUp') pickRow = (pickRow + PICK.length - 1) % PICK.length;
   else if (code === 'ArrowDown') pickRow = (pickRow + 1) % PICK.length;
   else return false;
@@ -1519,12 +1785,84 @@ const trafficMeshes = [];
 // will reach you from, which depends on whether they are quicker than you.
 function placeTrafficCar(t, first) {
   t.dir = Math.random() < 0.46 ? -1 : 1;
-  t.speed = 15 + Math.random() * 15;
-  t.lane = t.dir > 0 ? 2.55 : -2.55;
   const ahead = t.dir < 0 || Math.random() < 0.55;
   t.s = sEst + (ahead ? 200 + Math.random() * 260 : -(120 + Math.random() * 150));
   if (first) t.s = sEst + (Math.random() - 0.3) * 500;
   t.s = Math.max(20, t.s);
+  const L = lanesAt(t.s);
+  const avail = Math.max(1, Math.floor(t.dir > 0 ? L.r : L.l));
+  t.lane = Math.floor(Math.random() * avail);
+  t.laneF = t.lane;
+  // lane 0 is against the divider and is the one people hurry in
+  t.cruise = 19 + (avail - 1 - t.lane) * 3.5 + Math.random() * 7;
+  t.speed = t.cruise;
+  t.cool = Math.random() * 3;
+  t.steer = 0;
+}
+
+// Is there room in `lane` to move over? A window that reaches back further than
+// it reaches forward, because the car you have to worry about when changing lane
+// is the one coming up behind you in it.
+function laneClear(t, lane) {
+  for (const o of traffic) {
+    if (o === t || o.dir !== t.dir) continue;
+    if (Math.abs(o.lane - lane) > 0.5 && Math.abs(o.laneF - lane) > 0.7) continue;
+    const rel = (o.s - t.s) * t.dir;
+    if (rel > -30 && rel < 46) return false;
+  }
+  // and the player, who is a car like any other as far as this is concerned
+  if (t.dir > 0 && dEst > 0 && Math.abs(Math.floor(dEst / LANE_W) - lane) < 0.6) {
+    const rel = sEst - t.s;
+    if (rel > -30 && rel < 46) return false;
+  }
+  return true;
+}
+
+// One car's worth of thinking: how far to the thing in front, how fast it is
+// going, and whether there is a better lane to be in. Nothing here is clever —
+// it is a following distance and two lane-change rules — but a road where cars
+// close up, queue behind something slow, pull out, pass and pull back in reads
+// as traffic, and one where they slide along at a fixed speed never does.
+function trafficAI(t, dt) {
+  const L = lanesAt(t.s);
+  const avail = Math.max(1, Math.floor((t.dir > 0 ? L.r : L.l) + 0.02));
+  if (t.lane > avail - 1) { t.lane = avail - 1; t.cool = 2; }   // the lane ran out
+
+  let gap = 1e9, leadSpeed = t.cruise;
+  for (const o of traffic) {
+    if (o === t || o.dir !== t.dir) continue;
+    if (Math.abs(o.laneF - t.laneF) > 0.6) continue;
+    const rel = (o.s - t.s) * t.dir;
+    if (rel > 0 && rel < gap) { gap = rel; leadSpeed = o.speed; }
+  }
+  if (t.dir > 0 && dEst > 0 && Math.abs(Math.floor(dEst / LANE_W) - t.laneF) < 0.7) {
+    const rel = sEst - t.s;
+    if (rel > 0 && rel < gap) { gap = rel; leadSpeed = Math.max(0, vLong); }
+  }
+
+  // Match the car in front, with about ten metres of headway, and brake harder
+  // than you accelerate — which is both true of cars and what stops a queue
+  // oscillating its way backwards down the road.
+  const want = gap < 1e8 ? clamp(leadSpeed + (gap - 11) * 0.55, 0, t.cruise) : t.cruise;
+  t.speed += clamp(want - t.speed, -11 * dt, 2.6 * dt);
+  t.speed = Math.max(0.5, t.speed);
+
+  t.cool = Math.max(0, t.cool - dt);
+  if (!t.cool && avail > 1) {
+    const held = gap < 55 && leadSpeed < t.cruise - 2.5;
+    if (held && t.lane > 0 && laneClear(t, t.lane - 1)) {
+      t.lane--; t.cool = 3.5;                       // pull out and pass
+    } else if (held && t.lane < avail - 1 && laneClear(t, t.lane + 1)) {
+      t.lane++; t.cool = 3.5;                       // or go round the other side
+    } else if (!held && gap > 110 && t.lane < avail - 1 && laneClear(t, t.lane + 1)) {
+      t.lane++; t.cool = 6;                         // and move back over when done
+    }
+  }
+  // A lane change takes about a second and a half, and the nose points where the
+  // car is actually going while it happens.
+  const step = clamp(t.lane - t.laneF, -0.7 * dt, 0.7 * dt);
+  t.laneF += step;
+  t.steer += ((step / Math.max(dt, 1e-3)) * LANE_W / Math.max(6, t.speed) - t.steer) * (1 - Math.exp(-dt * 6));
 }
 
 const trM = new THREE.Matrix4(), trQ = new THREE.Quaternion(), trE = new THREE.Euler(0, 0, 0, 'YXZ');
@@ -1538,6 +1876,7 @@ function updateTraffic(dt, fx, fz, rx, rz) {
 
   for (let i = 0; i < traffic.length; i++) {
     const t = traffic[i];
+    trafficAI(t, dt);
     t.s += t.dir * t.speed * dt;
     const rel = t.s - sEst;
     if (rel > 560 || rel < -320) placeTrafficCar(t, false);
@@ -1546,11 +1885,14 @@ function updateTraffic(dt, fx, fz, rx, rz) {
     // prx/prz is the ROAD's right vector; rx/rz above is the player car's, and
     // the collision below needs the player's to know which way it was shoved.
     const prx = Math.cos(p.heading), prz = Math.sin(p.heading);
-    const x = p.x + prx * t.lane, z = p.z + prz * t.lane;
+    // lane centres are measured out from the divider, so a car keeps its lane
+    // when the road grows one at the outside
+    const lat = t.dir * (t.laneF + 0.5) * LANE_W;
+    const x = p.x + prx * lat, z = p.z + prz * lat;
     // pitch off the road's own gradient, or every car on a hill floats
     const slope = (getPose(t.s + 4).y - getPose(t.s - 4).y) / 8;
     trP.set(x, p.y + 0.07, z);
-    trE.set(Math.atan(slope) * t.dir, -(p.heading + (t.dir > 0 ? 0 : Math.PI)), 0);
+    trE.set(Math.atan(slope) * t.dir, -(p.heading + (t.dir > 0 ? 0 : Math.PI) + t.steer * t.dir), 0);
     trM.compose(trP, trQ.setFromEuler(trE), trS);
     for (const m of trafficMeshes) m.setMatrixAt(i, trM);
 
@@ -1568,7 +1910,8 @@ function updateTraffic(dt, fx, fz, rx, rz) {
       vLat = vLat * 0.40 + nLat * 4;
       yawRate += nLat * 0.8;
       camShake = Math.min(1.3, camShake + 0.9);
-      t.speed *= 0.55;
+      t.speed *= 0.45;
+      t.cool = 2;
     }
   }
   for (const m of trafficMeshes) m.instanceMatrix.needsUpdate = true;
@@ -1667,17 +2010,19 @@ addEventListener('keydown', e => {
   // While the picker is up nothing else gets a look at the keyboard, or holding
   // an arrow to browse cars would also be holding a lock of steering on.
   if (picking) {
-    if (e.code === 'Enter' || e.code === 'Space' || e.code === 'Escape') closePicker();
+    if (e.code === 'Enter' || e.code === 'Space') closePicker(true);
+    else if (e.code === 'Escape') closePicker(false);      // back out, change nothing
     else if (!pickKey(e.code)) return;
     e.preventDefault();
     return;
   }
+  if (e.code === 'Escape') { openPicker(); e.preventDefault(); return; }
 
   const k = e.key.toLowerCase();
   keys[k] = true;
   if (e.shiftKey) keys['shift'] = true;
 
-  if (k === 'v') { openPicker(); e.preventDefault(); return; }
+
   if (k === 'c') camMode = (camMode + 1) % 3;
   if (k === 'm') muted = !muted;
   if (k === 't') setManual(!manual);
@@ -1793,15 +2138,35 @@ let steerAngle = 0, wheelSpin = 0, slipAmount = 0;
 let bodyPitch = 0, bodyRoll = 0, suspPitch = 0, suspRoll = 0;
 let camShake = 0, skidTimer = 0;
 
+// Put the car back in the inside lane on ITS side of the road, not straddling
+// the divider — the centre of the spline is now the line between the two
+// directions rather than the middle of your half of a ten metre strip.
+function onRoadAt(s) {
+  const p = getPose(s);
+  const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
+  // The OUTSIDE lane on your side, not the inside one. Lane 0 sits against the
+  // divider and is the one everybody is hurrying in; a car that has just been
+  // put back on the road at a standstill does not belong there.
+  const lat = (Math.max(1, Math.floor(lanesAt(s).r)) - 0.5) * LANE_W;
+  pos.set(p.x + rx * lat, p.y, p.z + rz * lat);
+  yaw = p.heading;
+}
 function respawn() {
-  const p = getPose(sEst);
-  pos.set(p.x, p.y, p.z);
-  yaw = p.heading; vLong = Math.min(vLong, 12); vLat = 0; yawRate = 0; vy = 0;
+  onRoadAt(sEst);
+  vLong = Math.min(vLong, 12); vLat = 0; yawRate = 0; vy = 0;
   engineOn = true; blown = false; seize = 0;      // the only way to undo a money shift
   omegaE = Math.max(omegaE, IDLE * RPM2RAD);
   if (gear === 0 && !manual) gear = 1;
+  // And clear the road — much further back than ahead, because you are
+  // stationary and everything behind you is closing at thirty metres a second.
+  // Being dropped back in front of a queue is the one thing guaranteed to make
+  // the button that is supposed to rescue you useless.
+  for (const t of traffic) {
+    const rel = (t.s - sEst) * t.dir;
+    if (rel > -230 && rel < 110) placeTrafficCar(t, false);
+  }
 }
-{ const p = getPose(0); pos.set(p.x, p.y, p.z); yaw = p.heading; }
+onRoadAt(0);
 
 // ================= audio =================
 let audioCtx = null, engGain = null, engOscs = [], engFilter = null;
@@ -1847,6 +2212,7 @@ const el = {
   gear: document.getElementById('gear'), tach: document.getElementById('tachfill'),
   mode: document.getElementById('mode'), dist: document.getElementById('dist'),
   clutch: document.getElementById('clutchlamp'), stall: document.getElementById('stall'),
+  trip: document.getElementById('trip'), toast: document.getElementById('toast'),
   lampRev: document.getElementById('lampRev'), lampEng: document.getElementById('lampEng'),
 };
 // Cache the last value written to each node so a frame that changes nothing
@@ -1856,7 +2222,62 @@ const setCls = (e, v) => { if (e._c !== v) { e._c = v; e.className = v; } };
 const setSty = (e, k, v) => { const j = k + v; if (e['_s' + k] !== j) { e['_s' + k] = j; e.style[k] = v; } };
 
 let lastMsg = '';
-setTimeout(() => { document.getElementById('help').style.opacity = 0.28; }, 14000);
+// ================= minimap =================
+// The route, ahead and behind, rotated so the way you are pointing is up. The
+// road is sampled straight off the spline rather than off the built chunks, so
+// it can show far more of it than is loaded — which is the point, because what
+// you want from this is the shape of the next half mile.
+const mapCv = document.getElementById('minimap');
+const mapCtx = mapCv.getContext('2d');
+const MAP_R = 94, MAP_SCALE = 0.115;             // pixels per metre
+let mapDue = 0;
+function drawMinimap(dt) {
+  mapDue -= dt;
+  if (mapDue > 0) return;
+  mapDue = 0.07;                                  // ~14 Hz; it is a map, not a view
+  const g = mapCtx;
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.clearRect(0, 0, 188, 188);
+  g.save();
+  g.beginPath(); g.arc(MAP_R, MAP_R, MAP_R - 1, 0, 6.283); g.clip();
+  g.fillStyle = 'rgba(14,10,18,.52)'; g.fillRect(0, 0, 188, 188);
+  // put the car two thirds of the way down, so most of the disc is road ahead
+  g.translate(MAP_R, MAP_R * 1.42);
+  g.rotate(-yaw);
+  const px = (p) => (p.x - pos.x) * MAP_SCALE, pz = (p) => (p.z - pos.z) * MAP_SCALE;
+  // the carriageway, drawn at its real width so you can see it open out
+  g.lineCap = 'round'; g.lineJoin = 'round';
+  for (const pass of [0, 1]) {
+    g.beginPath();
+    let first = true;
+    for (let s = sEst - 280; s < sEst + 1500; s += 24) {
+      const p = getPose(Math.max(0, s));
+      if (first) { g.moveTo(px(p), pz(p)); first = false; } else g.lineTo(px(p), pz(p));
+    }
+    const L = lanesAt(sEst);
+    g.strokeStyle = pass ? 'rgba(232,228,220,.85)' : 'rgba(0,0,0,.35)';
+    g.lineWidth = ((L.l + L.r) * LANE_W * MAP_SCALE) + (pass ? 0 : 3);
+    g.stroke();
+  }
+  // traffic, coloured by which way it is going
+  for (const t of traffic) {
+    const p = getPose(t.s);
+    const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
+    const lat = t.dir * (t.laneF + 0.5) * LANE_W;
+    g.fillStyle = t.dir > 0 ? 'rgba(255,236,196,.95)' : 'rgba(255,120,96,.95)';
+    g.beginPath();
+    g.arc((p.x + rx * lat - pos.x) * MAP_SCALE, (p.z + rz * lat - pos.z) * MAP_SCALE, 2.6, 0, 6.283);
+    g.fill();
+  }
+  g.restore();
+  // and you, always pointing up the screen
+  g.save();
+  g.translate(MAP_R, MAP_R * 1.42);
+  g.fillStyle = '#ffd166';
+  g.beginPath(); g.moveTo(0, -7); g.lineTo(4.6, 5); g.lineTo(0, 2.6); g.lineTo(-4.6, 5);
+  g.closePath(); g.fill();
+  g.restore();
+}
 
 // ================= camera =================
 const camPos = new THREE.Vector3();
@@ -1868,6 +2289,10 @@ let camInit = false, fovNow = FOV;
 // ================= loop =================
 const clock = new THREE.Clock();
 let odo = 0, autoShiftLock = 0, lastChunk = -9999;
+// The road has no end, so the only thing that can tell you how far you have come
+// is how far you have come. A running trip and a marker every ten kilometres.
+let tripTime = 0, milestone = 0, toastFor = 0;
+const hhmm = t => (t >= 3600 ? Math.floor(t / 3600) + 'h ' : '') + Math.floor(t / 60) % 60 + 'm';
 
 // Adaptive resolution. Fill rate is the one cost here that scales with a screen
 // we cannot know in advance — a 4K display asks for nine times the pixels of a
@@ -1883,6 +2308,7 @@ let dpr = MAX_DPR, frameAcc = 0, frames = 0;
 selectCar(0);
 applyMode(0);
 applyConditions(1);
+pend.car = 0; pend.mode = 0; pend.cond = 1;
 paintPicker();
 
 renderer.setAnimationLoop(() => {
@@ -1947,7 +2373,7 @@ renderer.setAnimationLoop(() => {
   // ---------- surface ----------
   const gp = probe(pos.x, pos.z, sEst);
   sEst = gp.s; dEst = gp.d; groundY = gp.y;
-  const onRoad = Math.abs(dEst) < HALF + 0.4;
+  const onRoad = dEst > -gp.el - 0.4 && dEst < gp.er + 0.4;
   // Wet tarmac is the one condition that changes how the car drives rather than
   // how it looks, and it belongs here rather than in the tyre model: less grip is
   // less grip whether it is going into traction, braking or cornering.
@@ -2253,6 +2679,15 @@ renderer.setAnimationLoop(() => {
   setTxt(el.speed, Math.round(Math.abs(vLong) * 3.6));
   setTxt(el.rpm, Math.round(rpm / 50) * 50 + ' RPM');
   setTxt(el.dist, (odo / 1000).toFixed(1) + ' km');
+  if (!picking) tripTime += dt;
+  setTxt(el.trip, hhmm(tripTime) + ' · ' + Math.round(odo / Math.max(tripTime, 1) * 3.6) + ' avg');
+  if (odo > (milestone + 1) * 10000) {
+    milestone = Math.floor(odo / 10000);
+    el.toast.innerHTML = milestone * 10 + ' KM<small>' + hhmm(tripTime) + ' on the road</small>';
+    toastFor = 3.4;
+  }
+  toastFor = Math.max(0, toastFor - dt);
+  setSty(el.toast, 'opacity', toastFor > 0 ? '0.9' : '0');
   setTxt(el.gear, gear === -1 ? 'R' : gear === 0 ? 'N' : gear);
   setCls(el.gear, (manual && rpm > 6400 && gear > 0) ? 'warn' : '');
   // the dial is scaled to BURST, so the red band above redline is real estate you
@@ -2264,6 +2699,8 @@ renderer.setAnimationLoop(() => {
   setSty(el.clutch, 'opacity', (manual && clutch < 0.85) ? '1' : '0');
   setCls(el.lampRev, rpm > REV_CRIT ? 'crit' : rpm > REDLINE ? 'on' : '');
   setCls(el.lampEng, blown ? 'on' : '');
+
+  drawMinimap(dt);
 
   grind = Math.max(0, grind - dt);
   noRev = Math.max(0, noRev - dt);
