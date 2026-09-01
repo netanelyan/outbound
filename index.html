@@ -2166,7 +2166,15 @@ function respawn() {
     if (rel > -230 && rel < 110) placeTrafficCar(t, false);
   }
 }
-onRoadAt(0);
+// Start a few hundred metres in. The road only exists from s = 0 forwards, and
+// the chase camera sits seven metres BEHIND the car — so spawning at the very
+// start puts the camera outside the built world, looking at a hard edge with
+// nothing underneath it. sEst has to move with it: the probe can only walk 90 m
+// of arc length per frame, so leaving it at zero would spend the first second
+// catching up while the streamer builds chunks around the wrong place.
+const START_S = 420;
+sEst = START_S;
+onRoadAt(START_S);
 
 // ================= audio =================
 let audioCtx = null, engGain = null, engOscs = [], engFilter = null;
