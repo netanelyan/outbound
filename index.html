@@ -46,6 +46,8 @@
   #tachfill { height: 100%; width: 100%; background: #eaeaea; transition: background .12s;
               transform: scaleX(0); transform-origin: 0 50%; will-change: transform; }
   #tachfill.red { background: #ff4c3b; }
+  /* a motor has no redline to paint on the dial */
+  #tach.ev { background: rgba(0,0,0,.34); }
   #meta { margin-top: 9px; font-size: 12px; letter-spacing: 2px; opacity: .8; display: flex; gap: 14px; justify-content: flex-end; }
   #meta .on { color: #ffd166; }
 
@@ -512,6 +514,17 @@ const CONDITIONS = [{
   fog: 0.0042, exposure: 1.00, cloudAmt: 1.90, cloudDark: 0x4e545c, sunSharp: 0.15,
   env: ['#4a5566', '#6b7480', '#8a8f92', '#43443f', '#22231f'],
   grip: 0.72, wet: 1, ground: 0x8f948c, vignette: 'rgba(12,16,20,.52)',
+}, {
+  name: 'SNOW', blurb: 'FALLING · TREACHEROUS',
+  stats: 'half the grip of a dry road<br>you will find the limit early',
+  top: 0x5c6a7a, mid: 0x8e98a4, haze: 0xc6cbd0, tint: 0xdfe4e8,
+  dir: [-0.30, 0.58, -0.76], sunCol: 0xc8d0d8, sunPower: 1.0,
+  hemiSky: 0xbcc6d2, hemiGround: 0x8a8f94, hemiInt: 1.30,
+  fog: 0.0050, exposure: 1.02, cloudAmt: 1.70, cloudDark: 0x6b727c, sunSharp: 0.10,
+  env: ['#5c6a7a', '#8e98a4', '#c6cbd0', '#9aa0a4', '#6a6e72'],
+  // 2 rather than 1: still falling weather, but it settles rather than runs off,
+  // so the road goes pale and matt instead of dark and glossy.
+  grip: 0.50, wet: 2, ground: 0xdfe4ea, vignette: 'rgba(20,26,34,.46)',
 }];
 const envMaps = CONDITIONS.map(c => makeEnvMap(c.env));
 pmrem.dispose();
@@ -523,9 +536,10 @@ const MODES = [
   { name: 'FREE DRIVE', blurb: 'EMPTY ROAD', stats: 'nobody out here but you<br>the original, and still the best one', traffic: 0, city: false },
   { name: 'TRAFFIC', blurb: 'SHARED ROAD', stats: 'oncoming and overtaking<br>hit one and you will know about it', traffic: 18, city: false },
   { name: 'CITY', blurb: 'BUILT UP', stats: 'blocks, kerbs, street lighting<br>and traffic in both directions', traffic: 14, city: true },
+  { name: 'FOREST', blurb: 'CLOSE COUNTRY', stats: 'trees right up to the verge<br>dark, tight, and you cannot see past them', traffic: 10, city: false, forest: true },
 ];
 let condIndex = 1, modeIndex = 0;
-let CONDITION_GRIP = 1;
+let CONDITION_GRIP = 1, SNOWING = false;
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
@@ -994,6 +1008,7 @@ function buildChunk(ci) {
 
   const rnd = mulberry32(ci * 2654435761 + 7);
   const CITY = MODES[modeIndex].city;
+  const FOREST = !!MODES[modeIndex].forest;
 
   // One slow function of arc length, sampled once per chunk, that decides what
   // kind of country this is: how wooded, and what colour the ground cover is. It
@@ -1065,37 +1080,45 @@ function buildChunk(ci) {
   if (!CITY) { // Trees — well back from the verge, in loose stands rather than
     // scattered evenly, because nothing on a hillside grows on a uniform
     // distribution.
-    const TREES = Math.round(16 + band * band * 150);
+    const TREES = FOREST ? 240 : Math.round(16 + band * band * 150);
     const im = new THREE.InstancedMesh(treeGeo, treeMat, TREES);
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
     const sc = new THREE.Vector3(), p3 = new THREE.Vector3(), col = new THREE.Color();
     let cx = 0, cz = 0, cs = 0, cd = 0, cside = 1, crx = 0, crz = 0, cfx = 0, cfz = 0, left = 0;
     for (let b = 0; b < TREES; b++) {
       if (left <= 0) {                             // start a new stand
-        left = 4 + Math.floor(rnd() * 9);
+        left = (FOREST ? 8 : 4) + Math.floor(rnd() * 9);
         const ki = Math.floor(rnd() * CHUNK), p = pts[i0 + ki];
         cs = sAt(ki);
         cside = rnd() < 0.5 ? -1 : 1;
         const u = rnd();
-        cd = edgeAt(cs, cside) + 22 + u * u * 280;
+        // right up to the verge in the forest, and the stands overlap
+        cd = edgeAt(cs, cside) + (FOREST ? 5 + u * u * 95 : 22 + u * u * 280);
         crx = Math.cos(p.heading); crz = Math.sin(p.heading);
         cfx = Math.sin(p.heading); cfz = -Math.cos(p.heading);
         cx = p.x + crx * cside * cd;
         cz = p.z + crz * cside * cd;
       }
       left--;
-      const jx = (rnd() - 0.5) * 34, jz = (rnd() - 0.5) * 34;
-      const x = cx + jx, z = cz + jz;
-      // Split the scatter into along-road and across-road parts, so each tree
-      // knows its OWN station and its OWN distance from the tarmac. Using the
-      // stand's numbers for all of them is what left them hanging in the air.
-      const across = (jx * crx + jz * crz) * cside, along = jx * cfx + jz * cfz;
+      // Scattered in the ROAD's frame rather than in world x/z. Doing it in world
+      // coordinates means a tree can land anywhere within 17 m of the stand
+      // centre — including on the carriageway, which mattered not at all until
+      // trees became solid, and then made the forest undriveable. Here the
+      // across-road part can simply be clamped off the tarmac.
+      const along = (rnd() - 0.5) * 34, across = (rnd() - 0.5) * 34;
+      const sHere = cs + along;
+      const dist = Math.max(edgeAt(sHere, cside) + (FOREST ? 3.2 : 8), cd + across);
+      const pt = getPose(Math.max(0, sHere));
+      const trx = Math.cos(pt.heading), trz = Math.sin(pt.heading);
+      const x = pt.x + trx * cside * dist, z = pt.z + trz * cside * dist;
       const s = 1.5 + rnd() * 2.4;
       e.set(0, rnd() * 6.283, (rnd() - 0.5) * 0.14);     // a slight lean off vertical
       sc.set(s * (0.30 + rnd() * 0.13), s * (0.30 + rnd() * 0.2), s * (0.30 + rnd() * 0.13));
-      p3.set(x, groundAt(cs + along, cside, Math.max(2, cd + across)) - 0.15, z);
+      p3.set(x, groundAt(sHere, cside, dist) - 0.15, z);
       m.compose(p3, q.setFromEuler(e), sc);
       im.setMatrixAt(b, m);
+      // A tree is a solid object and you were driving through them
+      solids.push({ x, z, r: 0.26 * sc.x });
       col.setHSL(0.225 + band * 0.05 + rnd() * 0.09, 0.18 + rnd() * 0.26, 0.05 + rnd() * 0.065, THREE.SRGBColorSpace);
       im.setColorAt(b, col);
     }
@@ -1164,10 +1187,13 @@ function buildChunk(ci) {
         // sunk a metre so no gap opens under it wherever the ground still rolls
         b.translate(x, groundAt(sAt(k), side, off) + tall / 2 - 1.0, z);
         shells.push(b);
-        // Solid, on the same list the boulders use. A circle is a poor fit for a
-        // building, but it only has to stop you driving through one, and this far
-        // out the circle never reaches the carriageway.
-        solids.push({ x, z, r: (along + deep) / 4 });
+        // Solid, as an oriented box rather than a circle. A circle round a
+        // building is wrong in both directions at once — it leaves the corners
+        // unprotected so you clip into them, and it sticks out past the middle
+        // of every wall so you bounce off thin air. The box axes are the road's,
+        // because that is what the building was rotated to.
+        solids.push({ x, z, hw: along / 2, hl: deep / 2,
+                      ax: Math.sin(p.heading), az: -Math.cos(p.heading) });
       }
     }
     // Far settlements: a hamlet across the valley, hundreds of metres off the
@@ -1238,6 +1264,7 @@ function buildChunk(ci) {
       const base = p.y + 0.24;
       const pole = poleGeo.clone(); pole.translate(x, base + 3.7, z);
       poles.push(pole);
+      solids.push({ x, z, r: 0.22 });      // a lighting column is a steel post
       // only the head reaches back out over the carriageway, as they do
       const head = lampGeo.clone();
       head.rotateY(Math.PI / 2 - p.heading);
@@ -1620,7 +1647,7 @@ const CARS = [{
   // floor full of battery.
   name: 'TESLA MODEL 3', blurb: '2023 · ELECTRIC',
   stats: '1850 kg · one gear, no clutch<br>everything it has, from a standstill',
-  wb: 2.88, track: 0.79, axle: 1.44, mass: 1850, torque: 2250, shadow: [2.8, 5.3],
+  wb: 2.88, track: 0.79, axle: 1.44, mass: 1850, torque: 1250, shadow: [2.8, 5.3],
   ev: true, paint: 0xe8eaec, gloss: 0.28, flake: 0.05,
   width: 1.67, glassWidth: 1.91,
   body: [
@@ -1665,6 +1692,163 @@ const CARS = [{
     box(0.74, 0.10, 0.08, 0, 0.52, -2.30, dark);                  // centre intake
     box(1.24, 0.06, 0.36, 0, 0.24, -2.06, dark);                  // front valance
     box(1.30, 0.14, 0.30, 0, 0.22,  1.96, dark);                  // rear valance
+  },
+}, {
+  // A boxy 4x4: 4.58 m long, 2.00 wide and 1.97 TALL over a 2.59 m wheelbase.
+  // Almost twice the height of the Ferrari, and the point of it is that nothing
+  // else here is shaped remotely like this — flat panels, vertical glass, a roof
+  // you could stand a drink on, and it leans like a bus.
+  name: 'LAND ROVER 90', blurb: '1990 · FOUR WHEEL DRIVE',
+  stats: '1900 kg · 3.9 V8 · very tall<br>slow, ponderous, and unstoppable',
+  wb: 2.59, track: 0.79, axle: 1.295, mass: 1900, torque: 400, shadow: [2.9, 5.0],
+  paint: 0x5c6b4f, gloss: 0.55, flake: 0.0,
+  width: 1.80, glassWidth: 1.96,
+  body: [
+    [ 2.20, 0.44], [ 2.26, 0.72], [ 2.24, 1.06],   // vertical front, flat grille
+    [ 1.52, 1.12], [ 1.04, 1.14],                  // dead flat bonnet
+    [ 0.86, 1.86], [-1.66, 1.90],                  // upright screen, long flat roof
+    [-1.90, 1.72], [-2.06, 1.00],                  // and a vertical back
+    [-2.10, 0.60], [-2.02, 0.34],
+    [ 0.00, 0.34],
+  ],
+  glass: [
+    [[ 0.960, 1.246], [ 0.790, 1.966], [ 0.700, 1.950], [ 0.870, 1.230]],
+    [[ 0.760, 1.840], [-1.640, 1.880], [-1.700, 1.320], [ 0.780, 1.290]],
+    [[-1.760, 1.900], [-2.060, 1.640], [-1.980, 1.560], [-1.690, 1.820]],
+  ],
+  // Slab sided, because it is. Barely any tumblehome and barely any plan taper:
+  // this is a box with wheels and it should read as one from every angle.
+  section: (y, z) => {
+    const waist = 0.86 + 0.14 * smoothstep(0.34, 0.80, y)
+                       - 0.10 * smoothstep(1.60, 1.92, y);
+    return waist * (1 - 0.06 * smoothstep(1.70, 2.26, -z))
+                 * (1 - 0.05 * smoothstep(1.70, 2.10, z));
+  },
+  tyres: [{ r: 0.395, w: 0.30, x: 0.800, z: -1.295, rim: 0.62, front: 1 },
+          { r: 0.395, w: 0.30, x: 0.800, z:  1.295, rim: 0.62, front: 0 }],
+  face: () => makeWheelTexture(5, '#7d838a', '#9298a0', '#4a4d52', 19),
+  trim: ({ box, disc, dark, chrome, redLamp, whiteLamp }) => {
+    for (const sx of [-1, 1]) {
+      disc(0.115, 0.06, sx * 0.62, 1.02, -2.30, whiteLamp);      // round headlamps
+      box(0.16, 0.16, 0.06, sx * 0.88, 0.98, -2.28, dark);
+      box(0.20, 0.16, 0.05, sx * 0.72, 0.86,  2.14, redLamp);
+      box(0.12, 0.05, 0.06, sx * 1.00, 1.30, -0.82, dark);       // mirror arm
+      box(0.10, 0.16, 0.16, sx * 1.12, 1.34, -0.84, dark);       // and a big flat mirror
+      box(0.10, 0.14, 2.40, sx * 0.900, 0.52, 0.00, dark);       // side step
+      box(0.09, 0.09, 0.44, sx * 0.94, 1.90,  0.60, dark);       // roof rack rails
+      box(0.09, 0.09, 0.44, sx * 0.94, 1.90, -0.40, dark);
+    }
+    box(0.90, 0.42, 0.06, 0, 1.00, -2.30, dark);                 // grille
+    box(1.44, 0.16, 0.10, 0, 0.56, -2.26, dark);                 // bumper
+    box(1.44, 0.16, 0.10, 0, 0.52,  2.14, dark);
+    box(1.30, 0.06, 0.90, 0, 1.94,  0.10, dark);                 // roof rack
+    disc(0.30, 0.16, 0, 1.05, 2.20, dark);                       // spare wheel on the door
+  },
+}, {
+  // A muscle coupe: 4.79 m long, 1.92 wide, 1.38 tall over a 2.72 m wheelbase.
+  // Long bonnet, cabin pushed right back over the rear axle, fastback roof into
+  // a short high deck — the opposite proportion to the mid-engined Ferrari.
+  name: 'MUSCLE COUPE', blurb: '1969 · FRONT ENGINE V8',
+  stats: '1600 kg · enormous torque, no grip<br>it would rather be sideways',
+  wb: 2.72, track: 0.80, axle: 1.36, mass: 1600, torque: 520, shadow: [2.9, 5.4],
+  paint: 0x1d5f3a, gloss: 0.30, flake: 0.10,
+  width: 1.74, glassWidth: 1.99,
+  body: [
+    [ 2.34, 0.40], [ 2.40, 0.62], [ 2.30, 0.80],   // low blunt nose
+    [ 1.60, 0.86], [ 0.62, 0.90],                  // a very long flat bonnet
+    [-0.10, 1.30], [-0.86, 1.38],                  // screen, cabin set well back
+    [-1.66, 1.16], [-2.06, 1.04],                  // fastback into a short deck
+    [-2.30, 0.98], [-2.36, 0.62], [-2.26, 0.34],
+    [ 0.00, 0.30],
+  ],
+  glass: [
+    [[ 0.669, 0.982], [-0.051, 1.382], [-0.131, 1.312], [ 0.589, 0.912]],
+    [[-0.060, 1.300], [-0.900, 1.360], [-1.560, 1.150], [-1.420, 0.990], [ 0.020, 0.940]],
+    [[-0.900, 1.470], [-1.700, 1.250], [-1.620, 1.170], [-0.820, 1.390]],
+  ],
+  // Wide hips over the rear axle and a narrow roof: the shape people mean when
+  // they say a car has shoulders.
+  section: (y, z) => {
+    const waist = 0.72 + 0.28 * smoothstep(0.30, 0.74, y)
+                       - 0.26 * smoothstep(0.98, 1.36, y);
+    return waist * (1 - 0.22 * smoothstep(1.55, 2.40, -z))
+                 * (1 - 0.06 * smoothstep(1.80, 2.36, z))
+                 * (1 + 0.05 * smoothstep(0.4, 1.5, z));      // the haunch
+  },
+  tyres: [{ r: 0.360, w: 0.28, x: 0.805, z: -1.360, rim: 0.60, front: 1 },
+          { r: 0.375, w: 0.38, x: 0.795, z:  1.360, rim: 0.60, front: 0 }],
+  face: () => makeWheelTexture(5, '#b9bfc6', '#cdd3d9', '#8a2020', 20),
+  trim: ({ box, disc, dark, chrome, redLamp, whiteLamp }) => {
+    for (const sx of [-1, 1]) {
+      disc(0.105, 0.06, sx * 0.44, 0.74, -2.44, whiteLamp);     // quad round lamps
+      disc(0.105, 0.06, sx * 0.66, 0.74, -2.42, whiteLamp);
+      box(0.30, 0.16, 0.05, sx * 0.46, 0.86,  2.42, redLamp);   // three-bar tails
+      box(0.30, 0.16, 0.05, sx * 0.46, 0.86,  2.42, redLamp);
+      box(0.13, 0.04, 0.05, sx * 0.99, 0.98, -0.30, chrome);    // chrome mirror
+      box(0.09, 0.10, 0.15, sx * 1.07, 1.00, -0.32, chrome);
+      box(0.08, 0.10, 2.20, sx * 0.870, 0.44, 0.10, dark);      // rocker
+      disc(0.075, 0.14, sx * 0.52, 0.42, 2.36, chrome);         // side pipes
+      box(0.34, 0.05, 0.60, sx * 0.44, 0.93, -1.30, dark);      // bonnet stripes
+    }
+    box(1.28, 0.20, 0.08, 0, 0.74, -2.44, dark);                // black grille
+    box(1.52, 0.22, 0.05, 0, 0.86,  2.41, dark);                // tail panel
+    box(1.46, 0.05, 0.22, 0, 1.06,  2.20, dark);                // ducktail spoiler
+    box(1.30, 0.12, 0.30, 0, 0.34,  2.16, dark);
+  },
+}, {
+  // A Subaru Impreza WRX STI: 4.60 m long, 1.80 wide, 1.48 tall over a 2.65 m
+  // wheelbase. A four-door saloon with a bonnet scoop and a wing off a race car,
+  // which is the entire joke and the entire appeal.
+  name: 'SUBARU IMPREZA', blurb: '2015 · TURBO FLAT FOUR',
+  stats: '1540 kg · four wheel drive<br>grip everywhere, including the wet',
+  wb: 2.65, track: 0.775, axle: 1.325, mass: 1540, torque: 460, shadow: [2.8, 5.2],
+  paint: 0x1b4fa8, gloss: 0.30, flake: 0.08,
+  width: 1.62, glassWidth: 1.88,
+  body: [
+    [ 2.26, 0.40], [ 2.32, 0.62], [ 2.22, 0.82],   // low nose, hexagonal grille
+    [ 1.70, 0.92], [ 1.06, 0.99],                  // short bonnet
+    [ 0.36, 1.36], [-0.56, 1.44],                  // upright screen, saloon roof
+    [-1.20, 1.38], [-1.74, 1.10],                  // backlight
+    [-1.98, 1.02], [-2.24, 0.98],                  // and a proper boot
+    [-2.30, 0.64], [-2.22, 0.34],
+    [ 0.00, 0.30],
+  ],
+  glass: [
+    [[ 1.109, 1.089], [ 0.409, 1.459], [ 0.329, 1.389], [ 1.029, 1.019]],
+    [[ 0.360, 1.400], [-0.580, 1.470], [-1.240, 1.390], [-1.360, 1.130], [ 0.440, 1.060]],
+    [[-1.264, 1.474], [-1.804, 1.204], [-1.724, 1.124], [-1.184, 1.394]],
+  ],
+  section: (y, z) => {
+    const waist = 0.76 + 0.24 * smoothstep(0.32, 0.78, y)
+                       - 0.24 * smoothstep(1.04, 1.42, y);
+    return waist * (1 - 0.16 * smoothstep(1.60, 2.32, -z))
+                 * (1 - 0.12 * smoothstep(1.70, 2.30, z));
+  },
+  tyres: [{ r: 0.350, w: 0.27, x: 0.780, z: -1.325, rim: 0.70, front: 1 },
+          { r: 0.350, w: 0.27, x: 0.780, z:  1.325, rim: 0.70, front: 0 }],
+  face: () => makeWheelTexture(10, '#c8b23a', '#d6c256', '#3a3d42', 7),
+  trim: ({ box, disc, dark, chrome, redLamp, whiteLamp }) => {
+    for (const sx of [-1, 1]) {
+      box(0.40, 0.11, 0.07, sx * 0.52, 0.84, -2.30, whiteLamp);
+      box(0.44, 0.17, 0.05, sx * 0.52, 0.84, -2.26, dark);
+      box(0.30, 0.16, 0.10, sx * 0.58, 0.50, -2.28, dark);      // corner intakes
+      box(0.09, 0.11, 0.20, sx * 0.94, 0.94, -1.12, dark);      // fender vent
+      box(0.12, 0.04, 0.05, sx * 0.95, 1.06, -0.66, dark);
+      box(0.09, 0.11, 0.18, sx * 1.03, 1.09, -0.68, dark);
+      box(0.09, 0.11, 2.00, sx * 0.780, 0.42, 0.10, dark);
+      box(0.34, 0.13, 0.06, sx * 0.52, 0.88,  2.33, redLamp);
+      disc(0.062, 0.13, sx * 0.46, 0.42, 2.30, chrome);
+      // the wing, which is the whole point of the car
+      box(0.05, 0.20, 0.34, sx * 0.72, 1.44, 2.02, dark);
+    }
+    // bonnet scoop, front and centre, because it is the other point of the car
+    box(0.54, 0.09, 0.44, 0, 1.03, -1.62, dark);
+    box(0.34, 0.06, 0.16, 0, 1.07, -1.80, dark);
+    box(0.86, 0.24, 0.07, 0, 0.66, -2.30, dark);                // grille
+    box(1.32, 0.06, 0.36, 0, 0.24, -2.06, dark);                // splitter
+    box(1.50, 0.05, 0.36, 0, 1.53, 2.02, dark, 0.10);           // wing blade
+    box(1.40, 0.18, 0.05, 0, 0.86, 2.30, dark);
+    box(1.28, 0.14, 0.30, 0, 0.28, 2.02, dark);                 // diffuser
   },
 }];
 
@@ -1739,17 +1923,21 @@ function applyConditions(i) {
   scene.fog.color.copy(SKY_HAZE);
   // A city closes the horizon in whatever the weather — you cannot see a
   // kilometre down a street, and the moor beyond the blocks should not be there.
-  scene.fog.density = c.fog * (city ? 2.2 : 1);
+  scene.fog.density = c.fog * (city ? 2.2 : MODES[modeIndex].forest ? 1.8 : 1);
   scene.environment = envMaps[i];
   renderer.toneMappingExposure = c.exposure;
   terrainMat.color.setHex(c.ground);
   // Wet tarmac is darker AND far glossier — losing the diffuse and gaining a
   // reflection at once is the whole reading of a wet road.
   for (const m of roadMats) {
-    m.roughness = c.wet ? 0.16 : 0.82;
-    m.color.setHex(c.wet ? 0x5f6266 : 0xffffff);
-    m.envMapIntensity = c.wet ? 1.7 : 1.0;
+    // Wet tarmac is dark and mirror-like; snow on it is the exact opposite, pale
+    // and completely matt. Treating them as one "wet" state gets one of them wrong.
+    m.roughness = c.wet === 2 ? 0.95 : c.wet ? 0.16 : 0.82;
+    m.color.setHex(c.wet === 2 ? 0xbcc0c4 : c.wet ? 0x5f6266 : 0xffffff);
+    m.envMapIntensity = c.wet === 1 ? 1.7 : 1.0;
   }
+  markMat.color.setHex(c.wet === 2 ? 0x9aa0a6 : 0xffffff);   // paint goes under snow
+  SNOWING = c.wet === 2;
   // Lights come on when it is dim enough to want them.
   buildingMat.emissiveIntensity = c.exposure > 1.1 ? 0.18 : 0.95;
   lampMat.emissiveIntensity = c.exposure > 1.1 ? 0.35 : 1.7;
@@ -2097,25 +2285,29 @@ for (let i = 0; i < RAIN_N; i++) {
 const rainGeo = new THREE.BufferGeometry();
 rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPos, 3));
 const rainMesh = new THREE.LineSegments(rainGeo,
-  new THREE.LineBasicMaterial({ color: 0xd2dae2, transparent: true, opacity: 0.30, fog: false }));
+  new THREE.LineBasicMaterial({ color: 0xeef3f8, transparent: true, opacity: 0.42, fog: false }));
 rainMesh.frustumCulled = false;
 rainMesh.visible = false;
 scene.add(rainMesh);
 let rainFall = 0;
 function updateRain(dt, vx, vz) {
   if (!rainMesh.visible) return;
-  rainFall = (rainFall + dt * 27) % RAIN_H;
+  rainFall = (rainFall + dt * (SNOWING ? 5.5 : 27)) % RAIN_H;
   const cx = camera.position.x, cy = camera.position.y - 5, cz = camera.position.z;
   // The streaks lean back into the direction of travel, which is the only cue
   // that says how fast you are going through it.
-  const lx = clamp(-vx * 0.021, -1.1, 1.1), lz = clamp(-vz * 0.021, -1.1, 1.1);
+  // Snow is a flake, not a streak: almost no length, and it wanders sideways
+  // instead of being dragged straight back by the car's own speed.
+  const drag = SNOWING ? 0.004 : 0.021, len = SNOWING ? 0.09 : 0.62;
+  const wob = SNOWING ? Math.sin(rainFall * 0.9) * 0.25 : 0;
+  const lx = clamp(-vx * drag, -1.1, 1.1) + wob, lz = clamp(-vz * drag, -1.1, 1.1);
   for (let i = 0; i < RAIN_N; i++) {
     const o = i * 3, q = i * 6;
     let y = rainSeed[o + 1] - rainFall;
     if (y < 0) y += RAIN_H;
     const x = cx + rainSeed[o], z = cz + rainSeed[o + 2];
     rainPos[q] = x;           rainPos[q + 1] = cy + y;          rainPos[q + 2] = z;
-    rainPos[q + 3] = x + lx;  rainPos[q + 4] = cy + y + 0.62;   rainPos[q + 5] = z + lz;
+    rainPos[q + 3] = x + lx;  rainPos[q + 4] = cy + y + len;    rainPos[q + 5] = z + lz;
   }
   rainGeo.attributes.position.needsUpdate = true;
 }
@@ -2229,6 +2421,7 @@ const REVERSE = -3.40, FINAL = 4.05, WHEEL_R = 0.38;
 const RPM2RAD = Math.PI / 30;
 const IDLE = 850, REDLINE = 7000, LIMITER = 6850, BURST = 8400;
 const REV_CRIT = 7700;      // the lamp goes red here; you have maybe half a second
+const CAR_R = 1.1;         // how far the car keeps its middle from anything solid
 const REV_MAX = 2.2;        // m/s — reverse will not select above walking pace
 const CRUISE = 66;          // m/s the autopilot will wind up to on an open road
 // PEAK_TQ and MASS live with the car specs — they are the two numbers that
@@ -2253,6 +2446,8 @@ let grind = 0, starter = 0, shiftCut = 0, noRev = 0;
 // over-rev that destroys the V8 simply cannot happen — and so the limiter,
 // which is a real thing on an EV too, arrives at a sensible top speed.
 const EV_RATIO = 1.05, EV_BASE = 2600;
+// what the dial reads full scale on, in kilowatts
+const EV_PEAK_KW = 360;
 function ratio(g) {
   if (IS_EV) return g === 0 ? 0 : g < 0 ? -EV_RATIO : EV_RATIO;
   return g === 0 ? 0 : g < 0 ? REVERSE : RATIOS[g - 1];
@@ -2404,6 +2599,7 @@ const el = {
   mode: document.getElementById('mode'), dist: document.getElementById('dist'),
   clutch: document.getElementById('clutchlamp'), stall: document.getElementById('stall'),
   trip: document.getElementById('trip'), toast: document.getElementById('toast'),
+  tachbox: document.getElementById('tach'),
   lampRev: document.getElementById('lampRev'), lampEng: document.getElementById('lampEng'),
   lampAuto: document.getElementById('lampAuto'),
 };
@@ -2437,20 +2633,40 @@ function drawMinimap(dt) {
   g.translate(MAP_R, MAP_R * 1.42);
   g.rotate(-yaw);
   const px = (p) => (p.x - pos.x) * MAP_SCALE, pz = (p) => (p.z - pos.z) * MAP_SCALE;
-  // the carriageway, drawn at its real width so you can see it open out
-  g.lineCap = 'round'; g.lineJoin = 'round';
-  for (const pass of [0, 1]) {
-    g.beginPath();
-    let first = true;
-    for (let s = sEst - 280; s < sEst + 1500; s += 24) {
-      const p = getPose(Math.max(0, s));
-      if (first) { g.moveTo(px(p), pz(p)); first = false; } else g.lineTo(px(p), pz(p));
-    }
-    const L = lanesAt(sEst);
-    g.strokeStyle = pass ? 'rgba(232,228,220,.85)' : 'rgba(0,0,0,.35)';
-    g.lineWidth = ((L.l + L.r) * LANE_W * MAP_SCALE) + (pass ? 0 : 3);
-    g.stroke();
+  // The carriageway as a filled ribbon at its REAL width at every point, rather
+  // than one line at the width under the car — so you can see the road open out
+  // to five lanes half a mile ahead and close down again after it, which is the
+  // one thing worth knowing that you cannot get from the windscreen.
+  g.beginPath();
+  let first = true;
+  const edge = (s, side) => {
+    const p = getPose(Math.max(0, s));
+    const L = lanesAt(Math.max(0, s));
+    const d = side > 0 ? L.r * LANE_W : -L.l * LANE_W;
+    const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
+    return [(p.x + rx * d - pos.x) * MAP_SCALE, (p.z + rz * d - pos.z) * MAP_SCALE];
+  };
+  for (let s = sEst - 280; s < sEst + 1500; s += 24) {
+    const e = edge(s, 1);
+    if (first) { g.moveTo(e[0], e[1]); first = false; } else g.lineTo(e[0], e[1]);
   }
+  for (let s = sEst + 1500; s > sEst - 280; s -= 24) {
+    const e = edge(s, -1); g.lineTo(e[0], e[1]);
+  }
+  g.closePath();
+  g.fillStyle = 'rgba(226,222,214,.80)'; g.fill();
+  // and the concrete, where there is any — a road with a barrier down it is a
+  // different proposition and worth being able to see coming
+  g.lineCap = 'butt';
+  g.strokeStyle = 'rgba(70,64,60,.9)'; g.lineWidth = 1.6;
+  let run = false;
+  for (let s = sEst - 280; s < sEst + 1500; s += 24) {
+    const p = getPose(Math.max(0, s));
+    if (divided(Math.max(0, s))) {
+      if (!run) { g.beginPath(); g.moveTo(px(p), pz(p)); run = true; } else g.lineTo(px(p), pz(p));
+    } else if (run) { g.stroke(); run = false; }
+  }
+  if (run) g.stroke();
   // traffic, coloured by which way it is going
   for (const t of traffic) {
     const p = getPose(t.s);
@@ -2476,7 +2692,7 @@ const camPos = new THREE.Vector3();
 const camLook = new THREE.Vector3();
 const camTgt = new THREE.Vector3();
 const camOff = new THREE.Vector3();   // chase camera, relative to the car
-let camInit = false, fovNow = FOV;
+let camInit = false, fovNow = FOV, showTurn = 0;
 
 // ================= autopilot =================
 // Three separate jobs, and they are only loosely coupled: hold a lane, pick the
@@ -2559,7 +2775,7 @@ function autopilot(dt) {
     const vCorner = Math.sqrt(latMax / k);
     openRoad = Math.min(openRoad, Math.sqrt(vCorner * vCorner + 2 * brake * d));
   }
-  if (CONDITION_GRIP < 0.9) openRoad *= 0.86;      // hold something in hand in the wet
+  openRoad *= 0.55 + 0.45 * CONDITION_GRIP;        // and much more of it in the snow
 
   // ---- overtaking on a single carriageway ----
   // With one lane each way there is nowhere to pass except the far side of the
@@ -2579,7 +2795,7 @@ function autopilot(dt) {
       // own lane than a closing speed neither of us can do anything about
       if (oncoming < 150) { autoPass = 0; passing = false; }
       else if (!a0 || a0.gap > 34) autoPass = Math.min(autoPass, 0.7);   // past it, ease back
-    } else if (a0 && a0.gap < 55 && a0.spd < openRoad - 5 && v > 14 && centreDashed(sEst)) {
+    } else if (a0 && a0.gap < 75 && a0.spd < openRoad - 4 && v > 12 && centreDashed(sEst)) {
       const closing = Math.max(2.5, openRoad * 0.92 - a0.spd);
       const secs = (a0.gap + 30) / closing;                // how long the pass takes
       // Room for us AND for whatever is coming to cover the same seconds — and
@@ -2589,7 +2805,7 @@ function autopilot(dt) {
       // have to be abandoned halfway are worse than never starting them, which
       // is measurable: with a looser rule than this they caused every single
       // collision the autopilot had, and bought no speed at all.
-      if (secs < 3.2 && oncoming > (v + 32) * secs + 150 && lineFree(-LANE_W * 0.5, v)) {
+      if (secs < 4.2 && oncoming > (v + 32) * secs + 150 && lineFree(-LANE_W * 0.5, v)) {
         autoPass = secs + 0.9; passing = true;
       }
     }
@@ -2603,13 +2819,13 @@ function autopilot(dt) {
         if (l !== autoLane && !lineFree(lat, v)) continue;
         const a = aheadIn(lat, false);
         let score = a ? Math.min(openRoad, a.spd + (a.gap - 30) * 0.30) : openRoad;
-        score -= Math.abs(l - autoLane) * 1.2;   // changing lane is not free
+        score -= Math.abs(l - autoLane) * 0.6;   // changing lane costs a little
         // the inside lane is up against the oncoming carriageway, so it costs
         // something to sit in — but only while anything is actually coming
         score -= l === 0 && !split ? (oncoming < 150 ? 500 : 2.2) : 0;
         if (score > bestScore) { bestScore = score; best = l; }
       }
-      if (best !== autoLane) { autoLane = best; autoHold = 1.2; }
+      if (best !== autoLane) { autoLane = best; autoHold = 0.9; }
     }
     // and abandon a change the moment the gap closes
     const here = clamp(Math.floor(Math.max(0, dEst) / LANE_W), 0, nLanes - 1);
@@ -2985,16 +3201,47 @@ renderer.setAnimationLoop(() => {
     if (!g) continue;
     for (const t of g.userData.solids) {
       const dx = pos.x - t.x, dz = pos.z - t.z;
-      const dd = dx * dx + dz * dz;
-      const rr = t.r + 1.1;
-      if (dd < rr * rr && dd > 1e-4) {
-        const dl = Math.sqrt(dd), nx = dx / dl, nz = dz / dl;
-        pos.x = t.x + nx * rr; pos.z = t.z + nz * rr;
-        const into = vLong * (fx * -nx + fz * -nz);
-        vLong *= 0.35; vLat *= 0.3;
-        yawRate += (into > 0 ? 1 : -1) * 0.6;
-        camShake = Math.min(1, camShake + 0.7);
+      let nx, nz, px, pz;
+      if (t.hw !== undefined) {
+        // Oriented box. Work in its own frame, find the nearest point on it, and
+        // leave along the line to that point — which for a corner is diagonal
+        // and for a wall is square to the wall, both of which a circle got wrong.
+        const bx = -t.az, bz = t.ax;
+        const lx = dx * t.ax + dz * t.az, lz = dx * bx + dz * bz;
+        const cx = clamp(lx, -t.hw, t.hw), cz = clamp(lz, -t.hl, t.hl);
+        let ox = lx - cx, oz = lz - cz;
+        let d = Math.hypot(ox, oz);
+        if (d > CAR_R) continue;
+        let tx, tz;
+        if (d < 1e-4) {
+          // dead inside it: out by whichever face is nearest
+          if (t.hw - Math.abs(lx) < t.hl - Math.abs(lz)) {
+            ox = Math.sign(lx) || 1; oz = 0;
+            tx = ox * (t.hw + CAR_R); tz = lz;
+          } else {
+            ox = 0; oz = Math.sign(lz) || 1;
+            tx = lx; tz = oz * (t.hl + CAR_R);
+          }
+        } else {
+          tx = cx + ox / d * CAR_R; tz = cz + oz / d * CAR_R;
+          ox /= d; oz /= d;
+        }
+        px = t.x + tx * t.ax + tz * bx;
+        pz = t.z + tx * t.az + tz * bz;
+        nx = ox * t.ax + oz * bx; nz = ox * t.az + oz * bz;
+      } else {
+        const dd = dx * dx + dz * dz;
+        const rr = t.r + CAR_R;
+        if (dd >= rr * rr || dd <= 1e-4) continue;
+        const dl = Math.sqrt(dd);
+        nx = dx / dl; nz = dz / dl;
+        px = t.x + nx * rr; pz = t.z + nz * rr;
       }
+      pos.x = px; pos.z = pz;
+      const into = vLong * (fx * -nx + fz * -nz);
+      vLong *= 0.35; vLat *= 0.3;
+      yawRate += (into > 0 ? 1 : -1) * 0.6;
+      camShake = Math.min(1, camShake + 0.7);
     }
   }
 
@@ -3058,7 +3305,20 @@ renderer.setAnimationLoop(() => {
 
   // ---------- camera ----------
   camShake = Math.max(0, camShake - dt * 2.2);
-  if (camMode === 2) {                                   // hood
+  if (picking) {
+    // Showroom. While the settings window is open the camera walks slowly round
+    // the car at three-quarter height, because a row of cards with names on them
+    // tells you nothing about what you are choosing and the model is right there.
+    showTurn += dt * 0.34;
+    const r = 8.2, h = 1.9;
+    camera.position.set(pos.x + Math.sin(showTurn) * r, pos.y + h, pos.z + Math.cos(showTurn) * r);
+    camLook.set(pos.x, pos.y + 0.75, pos.z);
+    camera.lookAt(camLook);
+    fovNow += (36 - fovNow) * (1 - Math.exp(-dt * 4));
+    camera.fov = fovNow;
+    camera.updateProjectionMatrix();
+    camInit = false;                    // so the chase camera snaps back cleanly
+  } else if (camMode === 2) {                                   // hood
     camPos.set(pos.x + fx * 0.5, pos.y + 1.32, pos.z + fz * 0.5);
     camLook.set(pos.x + fx * 20, pos.y + 1.5, pos.z + fz * 20);
     camera.position.copy(camPos);
@@ -3084,10 +3344,13 @@ renderer.setAnimationLoop(() => {
     camera.position.copy(pos).add(camOff);
     camLook.set(pos.x + fx * 4.0, pos.y + 1.05, pos.z + fz * 4.0);
   }
-  if (camShake > 0.01) {
+  if (camShake > 0.01 && !picking) {
     camera.position.x += (Math.random() - 0.5) * camShake * 0.5;
     camera.position.y += (Math.random() - 0.5) * camShake * 0.5;
   }
+  if (picking) { skyDome.position.copy(camera.position); sun.target.position.copy(pos);
+    sun.position.copy(pos).addScaledVector(SUN_DIR, 900);
+    updateRain(dt, 0, 0); drawMinimap(dt); renderer.render(scene, camera); return; }
   camera.lookAt(camLook);
   // The field of view opens up with speed for the sensation of it, but it must
   // never track an instantaneous quantity: a step in the projection matrix is
@@ -3108,12 +3371,21 @@ renderer.setAnimationLoop(() => {
 
   // ---------- audio ----------
   if (audioCtx && engGain) {
-    const f = 22 + rpm * 0.0135;
-    engOscs.forEach((o, i) => o.frequency.setTargetAtTime(f * (1 + i * 0.005) * (i === 2 ? 2 : 1), audioCtx.currentTime, 0.02));
-    engFilter.frequency.value = 420 + rpm * 0.16 + gas * 400;
-    const load = 0.012 + gas * 0.028 + rpm / REDLINE * 0.02;
+    // Three detuned sawtooths through a low-pass is an engine, and that is the
+    // one thing an electric car is not. It gets a triangle at a much higher
+    // pitch tied to ROAD SPEED rather than to revs — the whine of a reduction
+    // gear — far quieter, with the filter opened right up so it stays thin.
+    const f = IS_EV ? 120 + Math.abs(vLong) * 18 : 22 + rpm * 0.0135;
+    engOscs.forEach((o, i) => {
+      const want = IS_EV ? 'triangle' : 'sawtooth';
+      if (o.type !== want) o.type = want;
+      o.frequency.setTargetAtTime(f * (1 + i * 0.005) * (i === 2 ? 2 : 1), audioCtx.currentTime, 0.02);
+    });
+    engFilter.frequency.value = IS_EV ? 2600 + Math.abs(vLong) * 40 : 420 + rpm * 0.16 + gas * 400;
+    const load = IS_EV ? 0.004 + gas * 0.007 + Math.abs(vLong) * 0.00035
+                       : 0.012 + gas * 0.028 + rpm / REDLINE * 0.02;
     engGain.gain.setTargetAtTime(muted || !engineOn ? 0 : load, audioCtx.currentTime, 0.05);
-    if (windGain) windGain.gain.setTargetAtTime(muted ? 0 : Math.min(0.055, speedAbs * 0.0016), audioCtx.currentTime, 0.1);
+    if (windGain) windGain.gain.setTargetAtTime(muted ? 0 : Math.min(IS_EV ? 0.085 : 0.055, speedAbs * (IS_EV ? 0.0026 : 0.0016)), audioCtx.currentTime, 0.1);
     if (skidGain) skidGain.gain.setTargetAtTime(muted ? 0 : (sliding ? 0.03 + slipAmount * 0.05 : 0), audioCtx.currentTime, 0.05);
     if (grindGain) grindGain.gain.setTargetAtTime(muted || grind <= 0 ? 0 : 0.075, audioCtx.currentTime, 0.02);
   }
@@ -3122,7 +3394,11 @@ renderer.setAnimationLoop(() => {
   // Every write here is a style invalidation whether or not the value changed,
   // and most of these change a few times a minute. Diff first.
   setTxt(el.speed, Math.round(Math.abs(vLong) * 3.6));
-  setTxt(el.rpm, Math.round(rpm / 50) * 50 + ' RPM');
+  // An electric car has a motor speed and no driver has ever cared what it is.
+  // What the dial is for is how much of the thing you are using, so it reads
+  // power — and negative power, which is the regen you can feel on the lift.
+  const kW = Tc * omegaE / 1000;
+  setTxt(el.rpm, IS_EV ? Math.round(kW / 5) * 5 + ' kW' : Math.round(rpm / 50) * 50 + ' RPM');
   setTxt(el.dist, (odo / 1000).toFixed(1) + ' km');
   if (!picking) tripTime += dt;
   setTxt(el.trip, hhmm(tripTime) + ' · ' + Math.round(odo / Math.max(tripTime, 1) * 3.6) + ' avg');
@@ -3137,12 +3413,13 @@ renderer.setAnimationLoop(() => {
   setCls(el.gear, (manual && rpm > 6400 && gear > 0) ? 'warn' : '');
   // the dial is scaled to BURST, so the red band above redline is real estate you
   // can actually watch the needle climb into
-  setSty(el.tach, 'transform', 'scaleX(' + clamp(rpm / BURST, 0, 1).toFixed(3) + ')');
-  setCls(el.tach, rpm > REDLINE ? 'red' : '');
+  setSty(el.tach, 'transform', 'scaleX(' + (IS_EV ? clamp(kW / EV_PEAK_KW, 0, 1) : clamp(rpm / BURST, 0, 1)).toFixed(3) + ')');
+  setCls(el.tach, !IS_EV && rpm > REDLINE ? 'red' : '');
+  setCls(el.tachbox, IS_EV ? 'ev' : '');       // no redline band on a motor
   setTxt(el.mode, manual ? 'MANUAL' : 'AUTO');
   setCls(el.mode, manual ? 'on' : '');
   setSty(el.clutch, 'opacity', (manual && clutch < 0.85) ? '1' : '0');
-  setCls(el.lampRev, rpm > REV_CRIT ? 'crit' : rpm > REDLINE ? 'on' : '');
+  setCls(el.lampRev, IS_EV ? '' : rpm > REV_CRIT ? 'crit' : rpm > REDLINE ? 'on' : '');
   setCls(el.lampEng, blown ? 'on' : '');
   setCls(el.lampAuto, autoDrive ? 'on' : '');
 
