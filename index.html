@@ -54,6 +54,7 @@
   #lampRev.on   { opacity: .95; color: #ffd166; }
   #lampRev.crit { opacity: 1;   color: #ff4c3b; }
   #lampEng.on   { opacity: 1;   color: #ff4c3b; }
+  #lampAuto.on  { opacity: .95; color: #6fd3ff; }
 
   #gear {
     position: absolute; right: 30px; bottom: 132px;
@@ -129,7 +130,7 @@
     <div id="speedrow"><div id="speed">0</div><div id="unit">KM/H</div></div>
     <div id="tach"><div id="tachfill"></div></div>
     <div id="meta"><span id="rpm">0 RPM</span><span id="mode">AUTO</span></div>
-    <div id="lamps"><span id="lampRev">REV</span><span id="lampEng">ENGINE</span></div>
+    <div id="lamps"><span id="lampAuto">AUTOPILOT</span><span id="lampRev">REV</span><span id="lampEng">ENGINE</span></div>
   </div>
 
   <div id="stall">STALLED<small>hold SHIFT to restart</small></div>
@@ -147,7 +148,7 @@
     <b>Shift</b> clutch &mdash; hold it to change gear &nbsp; <b>1</b>&ndash;<b>6</b> gears &nbsp; <b>Q</b>/<b>E</b> down / up<br>
     to pull away: hold <b>Shift</b>, select <b>1</b>, rev up, then ease off &nbsp; <b>0</b> neutral<br>
     reverse: <b>R</b> to select it, then <b>S</b> to back up and <b>W</b> to stop<br>
-    <b>T</b> back to auto &nbsp; <b>P</b> fresh car &nbsp; <b>M</b> sound &nbsp; <b>Esc</b> these settings
+    <b>T</b> back to auto &nbsp; <b>G</b> autopilot &nbsp; <b>P</b> fresh car &nbsp; <b>M</b> sound &nbsp; <b>Esc</b> these settings
   </div>
   <div id="pickhint"><kbd>&uarr;</kbd><kbd>&darr;</kbd> row &nbsp;&middot;&nbsp; <kbd>&larr;</kbd><kbd>&rarr;</kbd> choose &nbsp;&middot;&nbsp; <kbd>Enter</kbd> apply and drive &nbsp;&middot;&nbsp; <kbd>Esc</kbd> back out</div>
 </div>
@@ -1816,7 +1817,7 @@ function laneClear(t, lane) {
     if (rel > -30 && rel < 46) return false;
   }
   // and the player, who is a car like any other as far as this is concerned
-  if (t.dir > 0 && dEst > 0 && Math.abs(Math.floor(dEst / LANE_W) - lane) < 0.6) {
+  if (t.dir > 0 && Math.abs(dEst - (lane + 0.5) * LANE_W) < 2.7) {
     const rel = sEst - t.s;
     if (rel > -30 && rel < 46) return false;
   }
@@ -1840,15 +1841,20 @@ function trafficAI(t, dt) {
     const rel = (o.s - t.s) * t.dir;
     if (rel > 0 && rel < gap) { gap = rel; leadSpeed = o.speed; }
   }
-  if (t.dir > 0 && dEst > 0 && Math.abs(Math.floor(dEst / LANE_W) - t.laneF) < 0.7) {
+  // The player by lateral distance too — a floored lane index loses them for the
+  // whole of a lane change, which is exactly when somebody runs into the back.
+  if (t.dir > 0 && Math.abs(dEst - (t.laneF + 0.5) * LANE_W) < 2.7) {
     const rel = sEst - t.s;
     if (rel > 0 && rel < gap) { gap = rel; leadSpeed = Math.max(0, vLong); }
   }
 
-  // Match the car in front, with about ten metres of headway, and brake harder
-  // than you accelerate — which is both true of cars and what stops a queue
-  // oscillating its way backwards down the road.
-  const want = gap < 1e8 ? clamp(leadSpeed + (gap - 11) * 0.55, 0, t.cruise) : t.cruise;
+  // Match the car in front under the same kinematic rule the autopilot uses —
+  // the fastest you can be doing now and still be down to its speed by the time
+  // you get there — and brake harder than you accelerate, which is both true of
+  // cars and what stops a queue oscillating its way backwards down the road.
+  const want = gap < 1e8
+    ? Math.min(t.cruise, Math.sqrt(leadSpeed * leadSpeed + 2 * 6.5 * Math.max(0, gap - 10)))
+    : t.cruise;
   t.speed += clamp(want - t.speed, -11 * dt, 2.6 * dt);
   t.speed = Math.max(0.5, t.speed);
 
@@ -2028,6 +2034,12 @@ addEventListener('keydown', e => {
   if (e.shiftKey) keys['shift'] = true;
 
 
+  if (k === 'g') {
+    autoDrive = !autoDrive;
+    // it drives an automatic; nobody wants it stalling the car for them
+    if (autoDrive && manual) setManual(false);
+    if (autoDrive) autoLane = Math.max(0, Math.floor(Math.max(0, dEst) / LANE_W));
+  }
   if (k === 'c') camMode = (camMode + 1) % 3;
   if (k === 'm') muted = !muted;
   if (k === 't') setManual(!manual);
@@ -2066,6 +2078,7 @@ const RPM2RAD = Math.PI / 30;
 const IDLE = 850, REDLINE = 7000, LIMITER = 6850, BURST = 8400;
 const REV_CRIT = 7700;      // the lamp goes red here; you have maybe half a second
 const REV_MAX = 2.2;        // m/s — reverse will not select above walking pace
+const CRUISE = 66;          // m/s the autopilot will wind up to on an open road
 // PEAK_TQ and MASS live with the car specs — they are the two numbers that
 // actually differ between a 1100 kg Ferrari and a 1700 kg BMW.
 const IE = 0.42;            // engine + flywheel inertia, kg m^2
@@ -2227,6 +2240,7 @@ const el = {
   clutch: document.getElementById('clutchlamp'), stall: document.getElementById('stall'),
   trip: document.getElementById('trip'), toast: document.getElementById('toast'),
   lampRev: document.getElementById('lampRev'), lampEng: document.getElementById('lampEng'),
+  lampAuto: document.getElementById('lampAuto'),
 };
 // Cache the last value written to each node so a frame that changes nothing
 // touches the DOM not at all. Same trick the #stall overlay already used.
@@ -2299,6 +2313,183 @@ const camTgt = new THREE.Vector3();
 const camOff = new THREE.Vector3();   // chase camera, relative to the car
 let camInit = false, fovNow = FOV;
 
+// ================= autopilot =================
+// Three separate jobs, and they are only loosely coupled: hold a lane, pick the
+// lane that is actually moving, and never arrive anywhere faster than it can
+// still stop. The last one is what "never crashes" actually means — almost every
+// crash is a speed chosen a hundred metres before the thing you hit.
+let autoDrive = false, autoLane = 0, autoHold = 0;
+const autoOut = { gas: 0, brake: 0, steer: 0 };
+
+// The nearest thing ahead in one of OUR lanes, and how fast it is going. The
+// player's own direction only; oncoming traffic is on the other side of the
+// divider and the steering is what keeps us away from it.
+// The swept flag widens the test to everywhere between where we are now and
+// where we are going, which matters during a lane change: a car in the lane we
+// are LEAVING is still very much in front of us until we have actually left it.
+function laneAhead(lane, swept) {
+  const myLat = (lane + 0.5) * LANE_W;
+  const lo = (swept ? Math.min(dEst, myLat) : myLat) - 2.7;
+  const hi = (swept ? Math.max(dEst, myLat) : myLat) + 2.7;
+  let gap = 1e9, spd = 1e9;
+  for (const t of traffic) {
+    if (t.dir < 0) continue;
+    // Metres, not lane indices. A car halfway through a lane change is in
+    // nobody's lane by index and squarely in your path in reality, and by the
+    // time the index flipped it was already too late to do anything about it.
+    const now = (t.laneF + 0.5) * LANE_W, going = (t.lane + 0.5) * LANE_W;
+    if ((now < lo || now > hi) && (going < lo || going > hi)) continue;
+    const rel = t.s - sEst;
+    if (rel > 0 && rel < gap) { gap = rel; spd = t.speed; }
+  }
+  return gap < 1e8 ? { gap, spd } : null;
+}
+
+// Is there room to move into `lane` right now? Wider behind than ahead, because
+// the car that catches you out changing lane is the one already alongside.
+function laneFree(lane, v) {
+  const back = -(18 + v * 0.9), front = 26 + v * 1.1;
+  const lat = (lane + 0.5) * LANE_W;
+  for (const t of traffic) {
+    if (t.dir < 0) continue;
+    // Where it IS and where it has already decided to go. A car that has
+    // committed to this lane and is halfway across is not in it yet by laneF —
+    // and two cars moving into the same gap from opposite sides is precisely how
+    // you end up alongside somebody. Every collision left after the following
+    // and oncoming rules were fixed was this one.
+    const now = (t.laneF + 0.5) * LANE_W, going = (t.lane + 0.5) * LANE_W;
+    if (Math.abs(now - lat) > 2.9 && Math.abs(going - lat) > 2.9) continue;
+    const rel = t.s - sEst;
+    if (rel > back && rel < front) return false;
+  }
+  return true;
+}
+
+function autopilot(dt) {
+  // It only ever drives forwards, so the first thing it does with a car handed
+  // over in reverse is stop and get out of it. Without this, "accelerate" in
+  // reverse gear means accelerate BACKWARDS, and it would happily do that at
+  // whatever speed the corner ahead allowed.
+  if (gear === -1) {
+    autoOut.gas = 0; autoOut.brake = 1; autoOut.steer = 0;
+    if (vLong > -0.5) shiftTo(1);
+    return;
+  }
+  const v = Math.max(0, vLong);
+  // How far away the nearest thing coming the other way is. Nothing else on this
+  // road closes at the sum of two speeds, so it gets its own answer.
+  let oncoming = 1e9;
+  for (const t of traffic) {
+    if (t.dir > 0) continue;
+    const rel = t.s - sEst;
+    if (rel > -20 && rel < oncoming) oncoming = rel;
+  }
+  const nLanes = Math.max(1, Math.floor(lanesAt(sEst).r + 0.02));
+  autoLane = clamp(autoLane, 0, nLanes - 1);
+
+  // ---- which lane is worth being in ----
+  autoHold -= dt;
+  if (autoHold <= 0) {
+    let best = autoLane, bestScore = -1e9;
+    for (let l = 0; l < nLanes; l++) {
+      if (l !== autoLane && !laneFree(l, v)) continue;
+      const a = laneAhead(l);
+      // how fast this lane will let us go over the next few seconds
+      let score = a ? Math.min(CRUISE, a.spd + (a.gap - 30) * 0.30) : CRUISE;
+      score -= Math.abs(l - autoLane) * 2.0;   // changing lane is not free
+      // The inside lane is the one up against the oncoming carriageway, so it
+      // has to be worth something to sit in — and while anything is actually
+      // coming the other way it is not for sale at any price. On a single-lane
+      // carriageway there is nowhere else to be and the margin below does the
+      // work instead.
+      score -= l === 0 ? (oncoming < 140 ? 500 : 2.2) : 0;
+      if (score > bestScore) { bestScore = score; best = l; }
+    }
+    if (best !== autoLane) { autoLane = best; autoHold = 1.5; }
+  }
+  // And abandon a change the moment the gap closes. Committing to a lane and
+  // then not looking at it again for a second and a half is the other half of
+  // the same problem.
+  const here = clamp(Math.floor(Math.max(0, dEst) / LANE_W), 0, nLanes - 1);
+  if (autoLane !== here && !laneFree(autoLane, v)) { autoLane = here; autoHold = 1.0; }
+
+  // ---- steering: aim at a point down the middle of the target lane ----
+  // Pure pursuit. The look-ahead grows with speed, which is what stops it
+  // sawing at the wheel on a motorway and going wide on a hairpin.
+  const look = clamp(9 + v * 0.62, 11, 46);
+  const p = getPose(sEst + look);
+  const prx = Math.cos(p.heading), prz = Math.sin(p.heading);
+  // Biased away from the divider in the inside lane. Everything on the other
+  // side of that line is coming the other way at closing speeds nothing recovers
+  // from, so half a metre of margin there is worth more than it is anywhere else.
+  const lat = (autoLane + 0.5) * LANE_W + (autoLane === 0 ? 0.5 : 0);
+  const tx = p.x + prx * lat, tz = p.z + prz * lat;
+  const cfx = Math.sin(yaw), cfz = -Math.cos(yaw);
+  const crx = Math.cos(yaw), crz = Math.sin(yaw);
+  const dx = tx - pos.x, dz = tz - pos.z;
+  const bearing = Math.atan2(dx * crx + dz * crz, Math.max(2, dx * cfx + dz * cfz));
+  // Damped on yaw rate, and nothing else. An explicit cross-track term on top of
+  // this was tried and is unstable at speed: pure pursuit is ALREADY a position
+  // controller, because the point it chases is in the lane, and adding a second
+  // one fighting it made the car weave and then leave the road entirely.
+  let steer = bearing * 2.7 - yawRate * 0.28;
+  // Emergency margin, and deliberately a small bounded one. A general cross-track
+  // term fought pure pursuit and put the car off the road; this only wakes up
+  // inside the last metre before the divider with something actually coming, and
+  // it can never ask for more than a quarter of the lock.
+  if (oncoming < 120 && dEst < LANE_W) steer += clamp((LANE_W - dEst) * 0.30, 0, 0.25);
+  autoOut.steer = clamp(steer, -1, 1);
+
+  // ---- speed ----
+  // Corner limit first: scan the curvature ahead and take the lowest speed we
+  // could still be doing HERE and be down to the corner speed by the time we
+  // reach it. That is the whole trick — braking is decided by what is 200 m
+  // away, not by what is under the nose.
+  const latMax = 9.81 * 1.35 * CONDITION_GRIP * 0.72;
+  const brake = 7.2 * CONDITION_GRIP;
+  let target = CRUISE;
+  for (let d = 10; d < 280; d += 10) {
+    const k = Math.abs(curvature(sEst + d));
+    if (k < 2e-5) continue;
+    const vCorner = Math.sqrt(latMax / k);
+    target = Math.min(target, Math.sqrt(vCorner * vCorner + 2 * brake * d));
+  }
+  // then whatever is in front of us in this lane, with a proper time headway
+  // Then whatever is in front of us, under exactly the same rule as the corner:
+  // the fastest we could be going HERE and still be down to its speed by the time
+  // we reach it. Aiming at a headway instead — which is what this did first — is
+  // a position controller that will happily hold 45 m/s 100 m behind something
+  // doing 25, and then discover it needed 20 m/s of braking in the last second.
+  const a = laneAhead(autoLane, true);
+  if (a) {
+    const room = Math.max(0, a.gap - (12 + v * 0.7));
+    // 0.72 of what the tyres could give: the lead car can brake too, and the
+    // point of a margin is that it survives the assumption under it being wrong.
+    target = Math.min(target, Math.sqrt(a.spd * a.spd + 2 * brake * 0.72 * room));
+    if (a.gap < 8 + v * 0.6) target = 0;     // and everything off if it gets silly
+  }
+  // hold something in hand where the grip is not there
+  target *= CONDITION_GRIP > 0.9 ? 1 : 0.86;
+
+  const err = target - v;
+  autoOut.gas = clamp(err * 0.45, 0, 1);
+  autoOut.brake = clamp(-err * 0.42, 0, 1);
+
+  // Last resort, and deliberately the dumbest thing here. Everything above
+  // reasons about lanes, and every collision that got through did so because
+  // some piece of that bookkeeping disagreed with where a car actually was.
+  // This layer has no model at all: anything ahead within a car's width of our
+  // own line, closing fast enough to reach us inside two seconds, gets the lot.
+  let ttc = 1e9;
+  for (const t of traffic) {
+    if (t.dir < 0) continue;
+    if (Math.abs((t.laneF + 0.5) * LANE_W - dEst) > 2.4) continue;
+    const rel = t.s - sEst, closing = v - t.speed;
+    if (rel > 0 && closing > 0.5) ttc = Math.min(ttc, (rel - 7) / closing);
+  }
+  if (ttc < 2.4) { autoOut.gas = 0; autoOut.brake = 1; }
+}
+
 // ================= loop =================
 const clock = new THREE.Clock();
 let odo = 0, autoShiftLock = 0, lastChunk = -9999;
@@ -2352,10 +2543,16 @@ renderer.setAnimationLoop(() => {
   // Reverse still has to be selected — it is a gear, not a direction.
   const fwdKey = (!picking && (keys['w'] || keys['arrowup'])) ? 1 : 0;
   const backKey = (!picking && (keys['s'] || keys['arrowdown'])) ? 1 : 0;
-  const gas = gear === -1 ? backKey : fwdKey;
-  const brakeIn = picking ? 1 : (gear === -1 ? fwdKey : backKey);
-  const steerIn = ((keys['d'] || keys['arrowright']) ? 1 : 0) - ((keys['a'] || keys['arrowleft']) ? 1 : 0);
-  const handbrake = keys[' '] ? 1 : 0;
+  let gas, brakeIn, steerIn;
+  if (autoDrive && !picking) {
+    autopilot(dt);
+    gas = autoOut.gas; brakeIn = autoOut.brake; steerIn = autoOut.steer;
+  } else {
+    gas = gear === -1 ? backKey : fwdKey;
+    brakeIn = picking ? 1 : (gear === -1 ? fwdKey : backKey);
+    steerIn = ((keys['d'] || keys['arrowright']) ? 1 : 0) - ((keys['a'] || keys['arrowleft']) ? 1 : 0);
+  }
+  const handbrake = (!autoDrive && keys[' ']) ? 1 : 0;
 
   // ---------- clutch pedal ----------
   // Manual is the raw pedal. Auto slips like a torque converter at low speed and
@@ -2472,7 +2669,9 @@ renderer.setAnimationLoop(() => {
 
   let accel = force / MASS;
   accel -= Math.sign(vLong) * (rollRes * 9.81 + 0.00042 * vLong * vLong);
-  if (brakeIn) accel -= Math.sign(vLong) * Math.min(Math.abs(vLong) / dt, gripAcc * 0.95);
+  // scaled by the pedal, not gated on it: the player only ever sends 0 or 1, so
+  // this is identical for them, but the autopilot brakes by degrees
+  if (brakeIn) accel -= Math.sign(vLong) * Math.min(Math.abs(vLong) / dt, gripAcc * 0.95 * brakeIn);
   // A locked rear axle still scrubs speed off, but far less once the car is
   // properly sideways — otherwise every drift dies a second after it starts.
   if (handbrake) accel -= Math.sign(vLong) * Math.min(Math.abs(vLong) / dt, 6.5 - 4 * slipAmount);
@@ -2612,7 +2811,7 @@ renderer.setAnimationLoop(() => {
   // of roll — a road car on its stops manages three, a stiff one barely two —
   // and eight degrees across a 1.6 m track is 11 cm of travel, which is why the
   // car looked like it was cornering on two wheels. Three degrees is a lean.
-  suspPitch += ((brakeIn ? 0.035 : 0) - accel * 0.0042 - suspPitch) * (1 - Math.exp(-dt * 7));
+  suspPitch += (brakeIn * 0.035 - accel * 0.0042 - suspPitch) * (1 - Math.exp(-dt * 7));
   suspRoll += (clamp(yawRate * speedAbs * 0.0075, -0.055, 0.055) - suspRoll) * (1 - Math.exp(-dt * 7));
   chassis.rotation.x = suspPitch;
   chassis.rotation.z = suspRoll;
@@ -2723,6 +2922,7 @@ renderer.setAnimationLoop(() => {
   setSty(el.clutch, 'opacity', (manual && clutch < 0.85) ? '1' : '0');
   setCls(el.lampRev, rpm > REV_CRIT ? 'crit' : rpm > REDLINE ? 'on' : '');
   setCls(el.lampEng, blown ? 'on' : '');
+  setCls(el.lampAuto, autoDrive ? 'on' : '');
 
   drawMinimap(dt);
 
