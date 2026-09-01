@@ -61,7 +61,33 @@
   #stall small { display: block; font-size: 12px; letter-spacing: 2px; opacity: .8; margin-top: 8px; color: #fff; }
 
   #help { position: absolute; bottom: 24px; left: 22px; font-size: 12.5px; line-height: 1.85; opacity: .85; transition: opacity 1.5s; }
-  #help kbd { background: rgba(255,255,255,.16); border-radius: 4px; padding: 1px 6px; font: inherit; font-size: 11.5px; }
+  #help kbd, #pickhint kbd { background: rgba(255,255,255,.16); border-radius: 4px; padding: 1px 6px; font: inherit; font-size: 11.5px; }
+
+  /* Car picker. Sits over the scene rather than replacing it, and the gradient
+     runs out before the bottom of the screen so the car you are choosing is
+     visible underneath while you arrow between them. */
+  #pick {
+    position: fixed; inset: 0; z-index: 5; display: flex; flex-direction: column;
+    align-items: center; gap: 24px; padding-top: 13vh;
+    background: linear-gradient(180deg, rgba(26,13,28,.88) 0%, rgba(26,13,28,.66) 48%, rgba(26,13,28,0) 88%);
+    font-family: "Segoe UI", system-ui, sans-serif; color: #fff;
+    text-shadow: 0 1px 5px rgba(0,0,0,.5); user-select: none;
+  }
+  #picktitle { font-size: 13px; letter-spacing: 6px; opacity: .72; }
+  #pickcards { display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; }
+  .pcard {
+    width: 236px; padding: 18px 20px 17px; text-align: left; cursor: pointer;
+    background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.14);
+    border-radius: 12px; color: inherit; font: inherit;
+    transition: background .15s, border-color .15s, transform .15s;
+  }
+  .pcard:hover { background: rgba(255,255,255,.10); }
+  .pcard.on { background: rgba(255,255,255,.14); border-color: #ffd166; transform: translateY(-5px); }
+  .pcard b { display: block; font-size: 20px; font-weight: 600; letter-spacing: 1.5px; }
+  .pcard i { display: block; font-style: normal; font-size: 11px; letter-spacing: 2px; opacity: .6; margin-top: 6px; }
+  .pcard em { display: block; font-style: normal; font-size: 11.5px; line-height: 1.7; opacity: .5; margin-top: 13px; }
+  .pcard.on em { opacity: .82; }
+  #pickhint { font-size: 12px; letter-spacing: 1.5px; opacity: .62; }
 </style>
 </head>
 <body>
@@ -86,8 +112,14 @@
     <kbd>Shift</kbd> clutch &mdash; <em>hold it to change gear</em> &nbsp; <kbd>1</kbd>–<kbd>6</kbd> gears &nbsp; <kbd>Q</kbd>/<kbd>E</kbd> down / up<br>
     to pull away: hold <kbd>Shift</kbd>, select <kbd>1</kbd>, rev up, then ease off<br>
     <kbd>R</kbd> reverse &nbsp; <kbd>0</kbd> neutral &nbsp; <kbd>T</kbd> back to auto<br>
-    <kbd>C</kbd> camera &nbsp; <kbd>P</kbd> fresh car &nbsp; <kbd>M</kbd> sound
+    <kbd>C</kbd> camera &nbsp; <kbd>V</kbd> change car &nbsp; <kbd>P</kbd> fresh car &nbsp; <kbd>M</kbd> sound
   </div>
+</div>
+
+<div id="pick">
+  <div id="picktitle">SELECT CAR</div>
+  <div id="pickcards"></div>
+  <div id="pickhint"><kbd>&larr;</kbd><kbd>&rarr;</kbd> choose &nbsp;&middot;&nbsp; <kbd>Enter</kbd> drive &nbsp;&middot;&nbsp; <kbd>V</kbd> to change later</div>
 </div>
 
 <script type="importmap">
@@ -112,6 +144,19 @@ function vnoise(x, z) {
   return a + (b - a) * ux + (c - a) * uz + (a - b - c + d) * ux * uz;
 }
 const smoothstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+// Value noise over the unit square that WRAPS: each octave takes its lattice
+// index modulo its own frequency, so the left edge hashes against the same
+// corners as the right one. Canvases drawn with this tile with no seam to find,
+// which is the whole reason the ground mottle and the clouds can be textures at
+// all rather than noise evaluated per pixel in a shader.
+function tileNoise(u, v, f) {
+  const h = (x, y) => hash2(((x % f) + f) % f, ((y % f) + f) % f);
+  const x = u * f, y = v * f;
+  const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+  const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
+  const a = h(ix, iy), b = h(ix + 1, iy), c = h(ix, iy + 1), d = h(ix + 1, iy + 1);
+  return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy;
+}
 function mulberry32(seed) {
   return function () {
     seed |= 0; seed = seed + 0x6D2B79F5 | 0;
@@ -209,8 +254,39 @@ const SUN_DIR = new THREE.Vector3(0.40, 0.15, -0.90).normalize();
 
 scene.fog = new THREE.FogExp2(SKY_HAZE, 0.0016);
 
-// Sky dome. A vertical three-stop ramp plus a glow around the sun direction —
-// a flat background colour is the single most game-looking thing you can do.
+// Cloud coverage, baked once. Evaluating four octaves of noise per sky pixel
+// would work and would also be the most expensive thing on screen; a 256px tile
+// sampled twice costs two fetches and looks better, because the threshold that
+// turns noise into distinct cloud shapes can be done properly on the CPU.
+function makeCloudTexture() {
+  const S = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d');
+  const img = g.createImageData(S, S);
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const u = x / S, v = y / S;
+    const n = 0.50 * tileNoise(u, v, 4) + 0.25 * tileNoise(u, v, 9)
+            + 0.15 * tileNoise(u, v, 19) + 0.10 * tileNoise(u, v, 41);
+    // Cloud has an edge. Left as raw noise the sky turns into grey soup, so the
+    // middle of the range is stretched to the whole of it and everything below
+    // the threshold becomes clear air.
+    let t = clamp((n - 0.44) / 0.28, 0, 1);
+    t = t * t * (3 - 2 * t);
+    const o = (y * S + x) * 4;
+    img.data[o] = Math.round(t * 255);
+    img.data[o + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.NoColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+
+// Sky dome. A vertical three-stop ramp, a glow around the sun direction, and two
+// layers of cloud — a flat background colour is the single most game-looking
+// thing you can do, and an empty one is the second.
 const skyDome = new THREE.Mesh(
   new THREE.SphereGeometry(2000, 32, 20),
   new THREE.ShaderMaterial({
@@ -218,6 +294,7 @@ const skyDome = new THREE.Mesh(
     uniforms: {
       top: { value: SKY_TOP }, mid: { value: SKY_MID }, haze: { value: SKY_HAZE },
       sunCol: { value: SUN_TINT }, sunDir: { value: SUN_DIR },
+      clouds: { value: makeCloudTexture() },
     },
     vertexShader: `
       varying vec3 vDir;
@@ -227,6 +304,7 @@ const skyDome = new THREE.Mesh(
       }`,
     fragmentShader: `
       uniform vec3 top, mid, haze, sunCol, sunDir;
+      uniform sampler2D clouds;
       varying vec3 vDir;
       void main() {
         vec3 d = normalize(vDir);
@@ -234,6 +312,20 @@ const skyDome = new THREE.Mesh(
         c = mix(c, top, smoothstep(0.11, 0.66, d.y));
         float s = max(dot(d, normalize(sunDir)), 0.0);
         c += sunCol * (pow(s, 4.0) * 0.28 + pow(s, 64.0) * 0.60);
+
+        // Two cloud layers on a flat sheet overhead, projected the way a real
+        // one reads: stretched and crowded at the horizon, big and slow
+        // straight up. The 0.07 keeps the projection finite where d.y hits zero
+        // and the smoothstep hands the last few degrees back to the haze.
+        float up = max(d.y, 0.0);
+        vec2 cp = d.xz / (up + 0.07);
+        float a = texture2D(clouds, cp * 0.150 + vec2(0.17, 0.43)).r;
+        float b = texture2D(clouds, cp * 0.052 + vec2(0.66, 0.21)).r;
+        float cover = clamp(a * 0.70 + b * 0.62, 0.0, 1.0) * smoothstep(0.005, 0.19, up);
+        // lit from underneath by a sun on the horizon, so the tops go copper
+        vec3 lit = mix(vec3(0.24, 0.19, 0.29), sunCol * 1.30, pow(s, 1.8) * 0.75 + 0.22);
+        c = mix(c, lit, cover * 0.82);
+
         gl_FragColor = vec4(c, 1.0);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
@@ -284,35 +376,52 @@ addEventListener('resize', () => {
 
 // ================= materials =================
 // 256 px spans the full 10 m width, so one pixel is about 4 cm — enough to draw
-// the lane markings at their real width instead of approximating them.
-function makeRoadTexture() {
+// the lane markings at their real width instead of approximating them. The tile
+// is 24 m long, which is two full dash cycles and long enough that you have to
+// look for the repeat.
+const ROAD_TILE = 24, ROAD_PX = 1024;
+function makeRoadTexture(dashed) {
   const c = document.createElement('canvas');
-  c.width = 256; c.height = 512;
+  c.width = 256; c.height = ROAD_PX;
   const g = c.getContext('2d');
-  g.fillStyle = '#37393f'; g.fillRect(0, 0, 256, 512);
-  for (let i = 0; i < 14000; i++) {           // aggregate
+  const H = ROAD_PX, PM = H / ROAD_TILE;       // pixels per metre along the road
+  g.fillStyle = '#37393f'; g.fillRect(0, 0, 256, H);
+  for (let i = 0; i < 28000; i++) {           // aggregate
     const v = 44 + Math.random() * 38 | 0;
     g.fillStyle = `rgba(${v},${v},${v + 6},.55)`;
-    g.fillRect(Math.random() * 256 | 0, Math.random() * 512 | 0, 2, 2);
+    g.fillRect(Math.random() * 256 | 0, Math.random() * H | 0, 2, 2);
   }
   // Four polished wheel tracks — two lanes, two wheels each. Traffic burnishes
   // the stone smooth along these and leaves the rest coarse.
   g.fillStyle = 'rgba(22,23,27,.26)';
-  for (const u of [0.16, 0.34, 0.66, 0.84]) g.fillRect(u * 256 - 11, 0, 22, 512);
-  for (let i = 0; i < 40; i++) {              // tar-sealed cracks
+  for (const u of [0.16, 0.34, 0.66, 0.84]) g.fillRect(u * 256 - 11, 0, 22, H);
+  // Old patches, laid darker than the road around them and squared off at the
+  // edges. Nothing says "resurfaced twice" like a rectangle of newer tarmac.
+  for (let i = 0; i < 7; i++) {
+    const pw = 40 + Math.random() * 90, ph = 60 + Math.random() * 220;
+    g.fillStyle = `rgba(${26 + Math.random() * 14 | 0},${27 + Math.random() * 14 | 0},32,.42)`;
+    g.fillRect(Math.random() * 256 | 0, Math.random() * H | 0, pw, ph);
+  }
+  for (let i = 0; i < 90; i++) {              // tar-sealed cracks
     g.strokeStyle = 'rgba(20,20,24,.5)'; g.lineWidth = 1 + Math.random();
     g.beginPath();
-    let px = Math.random() * 256, py = Math.random() * 512;
+    let px = Math.random() * 256, py = Math.random() * H;
     g.moveTo(px, py);
     for (let k = 0; k < 5; k++) g.lineTo(px += (Math.random() - 0.5) * 30, py += (Math.random() - 0.5) * 40);
     g.stroke();
   }
-  // markings: solid edge lines, and a double solid down the middle
+  // Markings. Edge lines are identical in both variants so the two textures meet
+  // seamlessly where the centre line changes type mid-road.
   g.fillStyle = '#cfccc3';
-  g.fillRect(9, 0, 7, 512); g.fillRect(240, 0, 7, 512);
-  g.fillRect(117, 0, 6, 512); g.fillRect(133, 0, 6, 512);
-  for (let i = 0; i < 2600; i++) {            // scuff the paint back
-    const x = Math.random() * 256 | 0, y = Math.random() * 512 | 0;
+  g.fillRect(9, 0, 7, H); g.fillRect(240, 0, 7, H);
+  if (dashed) {
+    // 4 m of paint, 8 m of nothing — a 12 m cycle, so it tiles twice
+    for (let m = 0; m < ROAD_TILE; m += 12) g.fillRect(122, m * PM, 8, 4 * PM);
+  } else {
+    g.fillRect(117, 0, 6, H); g.fillRect(133, 0, 6, H);   // double solid
+  }
+  for (let i = 0; i < 5200; i++) {            // scuff the paint back
+    const x = Math.random() * 256 | 0, y = Math.random() * H | 0;
     g.fillStyle = `rgba(60,60,64,${Math.random() * 0.5})`;
     g.fillRect(x, y, 1, 2);
   }
@@ -326,10 +435,52 @@ function makeRoadTexture() {
 // sun is worth paying for. Everything else out here is a rough dielectric, where
 // Lambert is visually indistinguishable and far cheaper per pixel — and terrain
 // and scrub are most of the screen, every frame.
-const roadMat = new THREE.MeshStandardMaterial({
-  map: makeRoadTexture(), roughness: 0.82, metalness: 0.0,
+const roadMats = [false, true].map(d => new THREE.MeshStandardMaterial({
+  map: makeRoadTexture(d), roughness: 0.82, metalness: 0.0,
+}));
+// Real roads paint a solid line wherever you cannot see far enough ahead to
+// overtake — round bends and over crests — so which one you get comes straight
+// out of the spline's own curvature and the second difference of its elevation
+// rather than out of a random number. It works out at roughly 60% dashed and a
+// change every 470 m or so. Quantised into 36 m blocks, because a centre line
+// that changed type every few metres would read as a glitch rather than a road.
+const centreDashed = s => {
+  const q = Math.floor(s / 36) * 36 + 18;
+  const crest = elevation(q - 90) - 2 * elevation(q) + elevation(q + 90);   // negative over a brow
+  return Math.abs(curvature(q)) < 0.0026 && crest > -1.0;
+};
+
+// A tiling mottle for the open ground. Vertex colours alone leave the terrain
+// perfectly smooth between the ring lines, which up close is the most obvious
+// thing about it — heather and bracken have grain at every scale.
+const GROUND_MEAN = 0.8;                       // and the palette is scaled by 1/this
+function makeGroundTexture() {
+  const S = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d');
+  const img = g.createImageData(S, S);
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const u = x / S, v = y / S;
+    const n = 0.45 * tileNoise(u, v, 8) + 0.33 * tileNoise(u, v, 22) + 0.22 * tileNoise(u, v, 64);
+    // Linear, not sRGB. This texture is a multiplier on the vertex colours, and
+    // staying linear means its average really is GROUND_MEAN rather than
+    // whatever the transfer curve would have made of it — so the compensation
+    // below is exact and the palette comes out unchanged.
+    const o = (y * S + x) * 4;
+    img.data[o] = img.data[o + 1] = img.data[o + 2] = Math.round((0.60 + 0.40 * n) * 255);
+    img.data[o + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.NoColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return tex;
+}
+const terrainMat = new THREE.MeshLambertMaterial({
+  map: makeGroundTexture(), vertexColors: true, side: THREE.DoubleSide,
 });
-const terrainMat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
 
 // soft radial blob, reused for the contact shadow and the skid marks
 function makeBlobTexture(inner, outer) {
@@ -351,12 +502,26 @@ const bushGeo = new THREE.IcosahedronGeometry(1, 0);
 const rockGeo = new THREE.DodecahedronGeometry(1, 0);
 const postGeo = new THREE.BoxGeometry(0.10, 0.95, 0.10);
 const capGeo = new THREE.BoxGeometry(0.115, 0.13, 0.115);
-[bushGeo, rockGeo, postGeo, capGeo].forEach(g => sharedGeo.add(g));
+// A wind-bent conifer: trunk plus two stacked cones, welded into one geometry so
+// a whole chunk's worth is still a single instanced draw. Trees are what give
+// the middle distance a scale — without something of known height between the
+// verge and the horizon, a kilometre of hills reads as a few hundred metres.
+const treeGeo = (() => {
+  const trunk = new THREE.CylinderGeometry(0.10, 0.17, 1.6, 5);
+  trunk.translate(0, 0.80, 0);
+  const lower = new THREE.ConeGeometry(1.05, 2.3, 7, 1);
+  lower.translate(0, 2.15, 0);
+  const upper = new THREE.ConeGeometry(0.68, 1.8, 7, 1);
+  upper.translate(0, 3.40, 0);
+  return mergeGeos([trunk, lower, upper]);
+})();
+[bushGeo, rockGeo, postGeo, capGeo, treeGeo].forEach(g => sharedGeo.add(g));
 const bushMat = new THREE.MeshLambertMaterial({ flatShading: true });
 const rockMat = new THREE.MeshLambertMaterial({ color: 0x6d6459, flatShading: true });
 const postMat = new THREE.MeshLambertMaterial({ color: 0xb9b2a6 });
 // the reflector catches the low sun long after the post itself has gone to shadow
 const capMat = new THREE.MeshLambertMaterial({ color: 0xff6a4a, emissive: 0x40100a });
+const treeMat = new THREE.MeshLambertMaterial({ flatShading: true });
 
 // ================= chunks =================
 const chunks = new Map();
@@ -378,28 +543,39 @@ function buildChunk(ci) {
   const solids = [];
   const n = CHUNK + 1;
 
-  { // road ribbon
-    const pos = new Float32Array(n * 6), uv = new Float32Array(n * 4), idx = [];
-    for (let k = 0; k < n; k++) {
-      const p = pts[i0 + k];
-      const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
-      const y = p.y + 0.07, v = (i0 + k) * SEG / 12;
-      pos.set([p.x - rx * HALF, y, p.z - rz * HALF, p.x + rx * HALF, y, p.z + rz * HALF], k * 6);
-      uv.set([0, v, 1, v], k * 4);
-      if (k < n - 1) { const a = k * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+  { // Road ribbon, split into runs wherever the centre line changes type. Each
+    // run ends on the same vertex row the next one begins with, so the join is
+    // shared geometry rather than two edges that have to be made to line up.
+    let k0 = 0;
+    while (k0 < CHUNK) {
+      const dashed = centreDashed((i0 + k0) * SEG);
+      let k1 = k0 + 1;
+      while (k1 < CHUNK && centreDashed((i0 + k1) * SEG) === dashed) k1++;
+      const rows = k1 - k0 + 1;
+      const pos = new Float32Array(rows * 6), uv = new Float32Array(rows * 4), idx = [];
+      for (let k = 0; k < rows; k++) {
+        const p = pts[i0 + k0 + k];
+        const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
+        const y = p.y + 0.07, v = (i0 + k0 + k) * SEG / ROAD_TILE;
+        pos.set([p.x - rx * HALF, y, p.z - rz * HALF, p.x + rx * HALF, y, p.z + rz * HALF], k * 6);
+        uv.set([0, v, 1, v], k * 4);
+        if (k < rows - 1) { const a = k * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+      geo.setIndex(idx); geo.computeVertexNormals();
+      group.add(new THREE.Mesh(geo, roadMats[dashed ? 1 : 0]));
+      k0 = k1;
     }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-    geo.setIndex(idx); geo.computeVertexNormals();
-    group.add(new THREE.Mesh(geo, roadMat));
   }
 
   { // terrain, one ribbon per side
     const tmp = new THREE.Color();
     for (const side of [-1, 1]) {
       const cols = OFFS.length;
-      const pos = new Float32Array(n * cols * 3), col = new Float32Array(n * cols * 3), idx = [];
+      const pos = new Float32Array(n * cols * 3), col = new Float32Array(n * cols * 3);
+      const uv = new Float32Array(n * cols * 2), idx = [];
       for (let k = 0; k < n; k++) {
         const p = pts[i0 + k];
         const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
@@ -407,12 +583,16 @@ function buildChunk(ci) {
           const d = side * OFFS[j], x = p.x + rx * d, z = p.z + rz * d;
           const o = (k * cols + j) * 3;
           pos[o] = x; pos[o + 1] = terrainY(p.y, x, z, OFFS[j]); pos[o + 2] = z;
+          // The detail texture is mapped straight off world x/z at 9 m a tile,
+          // so it stays put on the ground however the ribbon is shaped.
+          uv[(k * cols + j) * 2] = x / 9; uv[(k * cols + j) * 2 + 1] = z / 9;
           // two noise scales: broad heather/bracken patches, then a finer mottle
           tmp.lerpColors(scrubCol, dryCol, vnoise(x * 0.012, z * 0.012));
           tmp.lerp(sageCol, vnoise(x * 0.05, z * 0.05) * 0.5);
           if (OFFS[j] < 6.2) tmp.lerp(gravelCol, 0.7);
           else if (OFFS[j] < 8) tmp.lerp(vergeCol, 0.6);
           else if (OFFS[j] < 11) tmp.lerp(vergeCol, 0.25);
+          tmp.multiplyScalar(1 / GROUND_MEAN);   // give back what the mottle takes
           col[o] = tmp.r; col[o + 1] = tmp.g; col[o + 2] = tmp.b;
           if (k < n - 1 && j < cols - 1) {
             const a = k * cols + j;
@@ -423,6 +603,7 @@ function buildChunk(ci) {
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
       geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
       geo.setIndex(idx); geo.computeVertexNormals();
       group.add(new THREE.Mesh(geo, terrainMat));
     }
@@ -453,6 +634,41 @@ function buildChunk(ci) {
       m.compose(p3, q.setFromEuler(e), sc);
       im.setMatrixAt(b, m);
       col.setHSL(0.055 + rnd() * 0.07, 0.30 + rnd() * 0.26, 0.13 + rnd() * 0.13, THREE.SRGBColorSpace);
+      im.setColorAt(b, col);
+    }
+    im.instanceMatrix.needsUpdate = true;
+    im.instanceColor.needsUpdate = true;
+    im.computeBoundingSphere();
+    group.add(im);
+  }
+
+  { // Trees — well back from the verge, in loose stands rather than scattered
+    // evenly, because nothing on a hillside grows on a uniform distribution.
+    const TREES = 72;
+    const im = new THREE.InstancedMesh(treeGeo, treeMat, TREES);
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+    const sc = new THREE.Vector3(), p3 = new THREE.Vector3(), col = new THREE.Color();
+    let cx = 0, cz = 0, cy = 0, left = 0;
+    for (let b = 0; b < TREES; b++) {
+      if (left <= 0) {                             // start a new stand
+        left = 4 + Math.floor(rnd() * 9);
+        const p = pts[i0 + Math.floor(rnd() * CHUNK)];
+        const side = rnd() < 0.5 ? -1 : 1;
+        const u = rnd();
+        const dist = 40 + u * u * 290;
+        cx = p.x + Math.cos(p.heading) * side * dist;
+        cz = p.z + Math.sin(p.heading) * side * dist;
+        cy = p.y; e.set(0, 0, 0);
+      }
+      left--;
+      const x = cx + (rnd() - 0.5) * 34, z = cz + (rnd() - 0.5) * 34;
+      const s = 0.85 + rnd() * 1.15;
+      e.set(0, rnd() * 6.283, (rnd() - 0.5) * 0.14);     // a slight lean off vertical
+      sc.set(s * (0.82 + rnd() * 0.36), s * (0.85 + rnd() * 0.55), s * (0.82 + rnd() * 0.36));
+      p3.set(x, terrainY(cy, x, z, Math.hypot(x - cx, z - cz) + 40) - 0.15, z);
+      m.compose(p3, q.setFromEuler(e), sc);
+      im.setMatrixAt(b, m);
+      col.setHSL(0.235 + rnd() * 0.10, 0.20 + rnd() * 0.24, 0.055 + rnd() * 0.06, THREE.SRGBColorSpace);
       im.setColorAt(b, col);
     }
     im.instanceMatrix.needsUpdate = true;
@@ -547,121 +763,136 @@ function mergeGeos(list) {
   return out;
 }
 
-{
-  // Side profile, extruded across the car and bevelled. A stack of boxes never
-  // reads as a car however you paint it — the silhouette is the whole game.
-  // Shape coords are (length, height); rotateY maps +length onto -Z, which is
-  // the direction the wheel layout below already calls "front".
-  const extrude = (points, depth, bevel) => {
-    const s = new THREE.Shape();
-    s.moveTo(points[0][0], points[0][1]);
-    for (let i = 1; i < points.length; i++) s.lineTo(points[i][0], points[i][1]);
-    s.closePath();
-    const g = new THREE.ExtrudeGeometry(s, bevel
-      ? { depth, bevelEnabled: true, bevelSize: 0.09, bevelThickness: 0.09, bevelSegments: 3, curveSegments: 3 }
-      : { depth, bevelEnabled: false });
-    g.rotateY(Math.PI / 2);
-    // The bevel extends the extrusion equally at both ends (-t .. depth+t), so
-    // the centre is depth/2 either way — adding the bevel here would push the
-    // whole body off-centre and give the car a wider left side than right.
-    g.translate(-depth / 2, 0, 0);
-    return g;
-  };
+// Side profile, extruded across the car and bevelled. A stack of boxes never
+// reads as a car however you paint it — the silhouette is the whole game.
+// Shape coords are (length, height); rotateY maps +length onto -Z, which is
+// the direction the wheel layouts below already call "front".
+const extrude = (points, depth, bevel) => {
+  const s = new THREE.Shape();
+  s.moveTo(points[0][0], points[0][1]);
+  for (let i = 1; i < points.length; i++) s.lineTo(points[i][0], points[i][1]);
+  s.closePath();
+  const g = new THREE.ExtrudeGeometry(s, bevel
+    ? { depth, bevelEnabled: true, bevelSize: 0.09, bevelThickness: 0.09, bevelSegments: 3, curveSegments: 3 }
+    : { depth, bevelEnabled: false });
+  g.rotateY(Math.PI / 2);
+  // The bevel extends the extrusion equally at both ends (-t .. depth+t), so
+  // the centre is depth/2 either way — adding the bevel here would push the
+  // whole body off-centre and give the car a wider left side than right.
+  g.translate(-depth / 2, 0, 0);
+  return g;
+};
 
-  // A straight extrusion is still a slab: constant width top to bottom, nose to
-  // tail. Real bodywork is pinched at the sills, widest across the arches, and
-  // pulls back toward the roof — the F40 has more tumblehome than almost
-  // anything, and a roof barely two thirds the width of its hips. In plan the
-  // nose comes to a point while the Kamm tail stays nearly full width, so z is
-  // signed here: negative is forward. Every shell gets the same function, which
-  // is what keeps the glass proud of the body at every height.
-  const section = (y, z) => {
-    const waist = 0.70 + 0.30 * smoothstep(0.26, 0.68, y)     // sills in, arches out
-                       - 0.28 * smoothstep(0.86, 1.14, y);    // tumblehome to the roof
-    return waist * (1 - 0.30 * smoothstep(1.45, 2.42, -z))    // the nose narrows hard
-                 * (1 - 0.08 * smoothstep(1.80, 2.34, z));    // the tail barely tucks
-  };
-  // ExtrudeGeometry triangulates the two flat side faces as a coarse fan across
-  // the whole profile — eleven triangles for the side of a car. Scaling those
-  // vertices by section() would drag metre-long triangles into whatever shape
-  // their three corners happened to land in, and the flanks come out as facets
-  // that bear no relation to the curve above. So refine first: splitting every
-  // triangle into four shares each new midpoint with the neighbour, which means
-  // no T-junctions and no seams, and three passes take the longest edge down to
-  // something the section curve can actually be sampled on.
-  const refine = (geo, passes) => {
-    let p = geo.attributes.position.array;
-    for (let n = 0; n < passes; n++) {
-      const out = new Float32Array(p.length * 4);
-      let o = 0;
-      const tri = (a, b, c) => { for (const v of [a, b, c]) { out[o++] = v[0]; out[o++] = v[1]; out[o++] = v[2]; } };
-      for (let i = 0; i < p.length; i += 9) {
-        const a = [p[i], p[i + 1], p[i + 2]], b = [p[i + 3], p[i + 4], p[i + 5]], c = [p[i + 6], p[i + 7], p[i + 8]];
-        const mid = (u, v) => [(u[0] + v[0]) / 2, (u[1] + v[1]) / 2, (u[2] + v[2]) / 2];
-        const d = mid(a, b), e = mid(b, c), f = mid(c, a);
-        tri(a, d, f); tri(d, b, e); tri(f, e, c); tri(d, e, f);
-      }
-      p = out;
+// ExtrudeGeometry triangulates the two flat side faces as a coarse fan across
+// the whole profile — eleven triangles for the side of a car. Scaling those
+// vertices by a section curve would drag metre-long triangles into whatever
+// shape their three corners happened to land in, and the flanks come out as
+// facets that bear no relation to the curve. So refine first: splitting every
+// triangle into four shares each new midpoint with the neighbour, which means
+// no T-junctions and no seams, and three passes take the longest edge down to
+// something the section curve can actually be sampled on.
+const refine = (geo, passes) => {
+  let p = geo.attributes.position.array;
+  for (let n = 0; n < passes; n++) {
+    const out = new Float32Array(p.length * 4);
+    let o = 0;
+    const tri = (a, b, c) => { for (const v of [a, b, c]) { out[o++] = v[0]; out[o++] = v[1]; out[o++] = v[2]; } };
+    for (let i = 0; i < p.length; i += 9) {
+      const a = [p[i], p[i + 1], p[i + 2]], b = [p[i + 3], p[i + 4], p[i + 5]], c = [p[i + 6], p[i + 7], p[i + 8]];
+      const mid = (u, v) => [(u[0] + v[0]) / 2, (u[1] + v[1]) / 2, (u[2] + v[2]) / 2];
+      const d = mid(a, b), e = mid(b, c), f = mid(c, a);
+      tri(a, d, f); tri(d, b, e); tri(f, e, c); tri(d, e, f);
     }
-    geo.deleteAttribute('uv');
-    geo.deleteAttribute('normal');
-    geo.setAttribute('position', new THREE.BufferAttribute(p, 3));
-    return geo;
-  };
+    p = out;
+  }
+  geo.deleteAttribute('uv');
+  geo.deleteAttribute('normal');
+  geo.setAttribute('position', new THREE.BufferAttribute(p, 3));
+  return geo;
+};
+
+// Wheel faces are painted straight into the cylinder's cap UVs. three.js maps
+// each cap to a centred disc in UV space, so a material array buys us spokes
+// for one 128px texture and not a single extra triangle.
+function makeWheelTexture(spokes, spokeCol, hubCol, capCol, halfWidth) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  g.fillStyle = '#0c0c0e'; g.fillRect(0, 0, 128, 128);
+  g.translate(64, 64);
+  g.fillStyle = spokeCol;
+  for (let i = 0; i < spokes; i++) {
+    g.rotate(Math.PI * 2 / spokes);
+    g.beginPath();
+    g.moveTo(-halfWidth * 0.62, -12); g.lineTo(halfWidth * 0.62, -12);
+    g.lineTo(halfWidth, -56); g.lineTo(-halfWidth, -56);
+    g.closePath(); g.fill();
+  }
+  g.fillStyle = hubCol; g.beginPath(); g.arc(0, 0, 16, 0, 6.283); g.fill();
+  g.fillStyle = capCol; g.beginPath(); g.arc(0, 0, 6, 0, 6.283); g.fill();
+  g.strokeStyle = '#c4cad0'; g.lineWidth = 5;
+  g.beginPath(); g.arc(0, 0, 59, 0, 6.283); g.stroke();                          // rim lip
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return t;
+}
+
+// Everything that is black plastic, glass or a light bulb is the same on both
+// cars, so those materials are built once and shared. Only the paint differs.
+const glassMat = new THREE.MeshStandardMaterial({
+  color: 0x0d1014, roughness: 0.07, metalness: 0.65, envMapIntensity: 1.5,
+});
+const dark = new THREE.MeshStandardMaterial({ color: 0x18191c, roughness: 0.58, metalness: 0.25 });
+const chrome = new THREE.MeshStandardMaterial({ color: 0x8a8d92, roughness: 0.28, metalness: 0.9 });
+const redLamp = new THREE.MeshStandardMaterial({
+  color: 0x3a0709, emissive: 0xff2410, emissiveIntensity: 1.7, roughness: 0.3, metalness: 0.1,
+});
+const whiteLamp = new THREE.MeshStandardMaterial({
+  color: 0x2a2a26, emissive: 0xfff0cf, emissiveIntensity: 1.4, roughness: 0.3, metalness: 0.1,
+});
+const tyreMat = new THREE.MeshStandardMaterial({ color: 0x111113, roughness: 0.94, metalness: 0.0 });
+const rimSide = new THREE.MeshStandardMaterial({ color: 0x27282b, roughness: 0.45, metalness: 0.75 });
+
+const wheels = [], steerHolders = [];
+
+// One car out of one spec. A straight extrusion is a slab — constant width top
+// to bottom, nose to tail — so every shell is warped by the car's own section
+// curve: pinched at the sills, widest across the arches, pulled back toward the
+// roof, and tapered in plan at the ends. Passing the SAME curve through the
+// glass is what keeps it proud of the body at every height.
+function buildCar(spec) {
+  const group = new THREE.Group();
   const shell = (points, depth, bevel) => {
     const geo = refine(extrude(points, depth, bevel), bevel ? 3 : 2);
     const p = geo.attributes.position;
-    for (let i = 0; i < p.count; i++) p.setX(i, p.getX(i) * section(p.getY(i), p.getZ(i)));
+    for (let i = 0; i < p.count; i++) p.setX(i, p.getX(i) * spec.section(p.getY(i), p.getZ(i)));
     geo.computeVertexNormals();
     return geo;
   };
 
-  // Rosso Corsa. Paint is a dielectric with a lacquer over it, not a metal —
-  // faking it with metalness tints the specular red and kills the highlight, so
+  // Paint is a dielectric with a lacquer over it, not a metal — faking it with
+  // metalness tints the specular the body colour and kills the highlight, so
   // this is the one place in the file worth a physical material and a clearcoat.
   const paint = new THREE.MeshPhysicalMaterial({
-    color: 0xcf1622, roughness: 0.36, metalness: 0.0,
+    color: spec.paint, roughness: spec.gloss, metalness: spec.flake,
     clearcoat: 1.0, clearcoatRoughness: 0.06, envMapIntensity: 1.3,
   });
-  const glassMat = new THREE.MeshStandardMaterial({
-    color: 0x0d1014, roughness: 0.07, metalness: 0.65, envMapIntensity: 1.5,
-  });
-  const dark = new THREE.MeshStandardMaterial({ color: 0x18191c, roughness: 0.58, metalness: 0.25 });
-  const chrome = new THREE.MeshStandardMaterial({ color: 0x8a8d92, roughness: 0.28, metalness: 0.9 });
-  const redLamp = new THREE.MeshStandardMaterial({
-    color: 0x3a0709, emissive: 0xff2410, emissiveIntensity: 1.7, roughness: 0.3, metalness: 0.1,
-  });
-  const whiteLamp = new THREE.MeshStandardMaterial({
-    color: 0x2a2a26, emissive: 0xfff0cf, emissiveIntensity: 1.4, roughness: 0.3, metalness: 0.1,
-  });
 
-  chassis.add(new THREE.Mesh(shell([
-    [ 2.38, 0.30], [ 2.42, 0.50], [ 2.24, 0.62],   // splitter lip, nose, over the front
-    [ 1.62, 0.76], [ 1.02, 0.82],                  // flat front deck, then the cowl
-    [ 0.34, 1.14], [-0.42, 1.13],                  // screen at 65 degrees, short flat roof
-    [-1.18, 0.99], [-1.98, 0.96], [-2.28, 0.93],   // rear window, then the engine deck
-    [-2.34, 0.56], [-2.24, 0.30],                  // the tail, chopped square
-    [ 0.00, 0.22],                                 // floor
-  ], 1.80, true), paint));
+  group.add(new THREE.Mesh(shell(spec.body, spec.width, true), paint));
+  // Glass is several flat slabs rather than one shell over the whole cabin,
+  // because on both of these cars the roof is body colour and a single dark
+  // greenhouse would paint it out. The raked panels are the body profile pushed
+  // 0.11 along their outward normal — 0.09 to clear the bevel (see below) and
+  // 0.02 to stand proud of it; the side windows only have to beat the body in
+  // width, so they stay put and take their clearance from the extrusion depth.
+  group.add(new THREE.Mesh(mergeGeos(spec.glass.map(p => shell(p, spec.glassWidth, false))), glassMat));
 
-  // The glass is three shells rather than one over the whole cabin: the F40's
-  // roof is body colour, and a single dark greenhouse would paint it out and
-  // turn the car into a generic modern coupe. Each is a thin slab lying in its
-  // own plane. The screen and the engine cover are the body profile pushed 0.11
-  // along their outward normal — 0.09 to clear the bevel (see below) and 0.02 to
-  // stand proud of it; the side windows only need to beat the body in width, so
-  // they stay where they are and get their clearance from the extrusion depth.
-  chassis.add(new THREE.Mesh(mergeGeos([
-    shell([[ 1.067, 0.919], [ 0.387, 1.239], [ 0.307, 1.169], [ 0.987, 0.859]], 2.05, false),
-    shell([[ 0.360, 1.160], [-0.420, 1.150], [-0.560, 0.900], [ 0.460, 0.880]], 2.05, false),
-    shell([[-0.460, 1.228], [-1.220, 1.088], [-1.120, 0.998], [-0.380, 1.138]], 2.05, false),
-  ]), glassMat));
-
-  // Trim is placed against the bevelled, tapered shell rather than the raw
-  // profile. The profile above winds clockwise, which makes the bevel expand it:
-  // the real skin sits about 0.09 outboard of every point listed, and the taper
-  // pulls the ends in on top of that. Anything positioned on the nominal surface
-  // ends up buried inside the car.
+  // Trim goes against the bevelled, tapered skin rather than the raw profile.
+  // These profiles wind clockwise, which makes the bevel expand them: the real
+  // surface sits about 0.09 outboard of every point listed, and the taper pulls
+  // the ends in on top of that. Anything placed on the nominal surface ends up
+  // buried inside the car.
   const bin = new Map();
   const put = (g, mat) => { if (!bin.has(mat)) bin.set(mat, []); bin.get(mat).push(g); };
   const box = (w, h, d, x, y, z, mat, rx) => {
@@ -676,88 +907,13 @@ function mergeGeos(list) {
     g.translate(x, y, z);
     put(g, mat);
   };
+  spec.trim({ box, disc, dark, chrome, redLamp, whiteLamp, paint });
+  for (const [mat, gs] of bin) group.add(new THREE.Mesh(mergeGeos(gs), mat));
 
-  // The wing. Nothing else on the car is as recognisable from a quarter mile
-  // away, so it gets the full treatment: blade at a few degrees of attack, end
-  // plates, and two struts standing off the deck.
-  box(1.86, 0.05, 0.42,  0.00, 1.16, 2.00, dark, 0.12);
-  for (const sx of [-1, 1]) {
-    box(0.04, 0.20, 0.46, sx * 0.95, 1.17, 2.00, dark);
-    box(0.07, 0.20, 0.24, sx * 0.50, 1.06, 2.04, dark);
-  }
-
-  // Tail: black panel, two round lamps a side, three pipes, diffuser.
-  box(1.56, 0.34, 0.06, 0, 0.73, 2.42, dark);
-  box(1.24, 0.16, 0.36, 0, 0.17, 2.08, dark);
-  for (const sx of [-1, 1]) {
-    disc(0.085, 0.05, sx * 0.29, 0.73, 2.46, redLamp);
-    disc(0.085, 0.05, sx * 0.51, 0.73, 2.46, redLamp);
-  }
-  for (const ex of [-0.14, 0, 0.14]) disc(0.055, 0.12, ex, 0.42, 2.40, chrome);
-
-  // Louvres over the engine cover, sitting in its plane and a shade proud of it.
-  for (const lz of [0.62, 0.82, 1.02]) box(1.15, 0.03, 0.09, 0, 1.345 - 0.184 * lz, lz, dark, 0.182);
-
-  for (const sx of [-1, 1]) {
-    box(0.10, 0.18, 0.66, sx * 0.99, 0.72,  0.55, dark);   // intercooler scoop
-    box(0.14, 0.04, 0.05, sx * 0.98, 0.86, -0.96, dark);   // mirror stalk
-    box(0.09, 0.11, 0.16, sx * 1.07, 0.90, -0.98, dark);   // mirror
-    // Headlamps popped up. They are hidden on the real car, but hidden lamps at
-    // dusk are just a smooth nose — raised, they are the front end's only detail.
-    box(0.34, 0.14, 0.30, sx * 0.50, 0.85, -1.780, dark);
-    box(0.30, 0.10, 0.05, sx * 0.50, 0.85, -1.945, whiteLamp);
-    box(0.22, 0.12, 0.10, sx * 0.40, 0.41, -2.500, dark);  // outer nose intake
-  }
-  box(0.76, 0.05, 0.30, 0, 0.755, -2.05, dark);            // radiator exit vent
-  box(0.52, 0.14, 0.10, 0, 0.420, -2.500, dark);           // centre nose intake
-  box(1.10, 0.06, 0.40, 0, 0.180, -2.18, dark);            // splitter
-
-  for (const [mat, gs] of bin) chassis.add(new THREE.Mesh(mergeGeos(gs), mat));
-
-  const shadow = new THREE.Mesh(new THREE.PlaneGeometry(2.9, 5.5),
-    new THREE.MeshBasicMaterial({
-      map: makeBlobTexture(0.62, 0), transparent: true, depthWrite: false, opacity: 0.85,
-    }));
-  shadow.rotation.x = -Math.PI / 2;
-  shadow.position.y = 0.035;
-  car.add(shadow);   // stays flat on the ground rather than rolling with the body
-}
-const wheels = [], steerHolders = [];
-{
-  // Five spokes painted straight into the cylinder's cap UVs. three.js maps each
-  // cap to a centred disc in UV space, so a material array buys us a wheel face
-  // for one 128px texture and not a single extra triangle.
-  const c = document.createElement('canvas');
-  c.width = c.height = 128;
-  const g = c.getContext('2d');
-  g.fillStyle = '#0c0c0e'; g.fillRect(0, 0, 128, 128);
-  g.translate(64, 64);
-  for (let i = 0; i < 5; i++) {
-    g.rotate(Math.PI * 2 / 5);
-    g.fillStyle = '#9aa1a8';
-    g.beginPath();
-    g.moveTo(-9, -12); g.lineTo(9, -12); g.lineTo(16, -56); g.lineTo(-16, -56);
-    g.closePath(); g.fill();
-  }
-  g.fillStyle = '#aeb5bc'; g.beginPath(); g.arc(0, 0, 16, 0, 6.283); g.fill();
-  g.fillStyle = '#e8c53c'; g.beginPath(); g.arc(0, 0, 6, 0, 6.283); g.fill();   // centre cap
-  g.strokeStyle = '#c4cad0'; g.lineWidth = 5;
-  g.beginPath(); g.arc(0, 0, 59, 0, 6.283); g.stroke();                          // rim lip
-  const faceTex = new THREE.CanvasTexture(c);
-  faceTex.colorSpace = THREE.SRGBColorSpace;
-  faceTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
-
-  const tyreMat = new THREE.MeshStandardMaterial({ color: 0x111113, roughness: 0.94, metalness: 0.0 });
-  const rimSide = new THREE.MeshStandardMaterial({ color: 0x27282b, roughness: 0.45, metalness: 0.75 });
-  const faceMat = new THREE.MeshStandardMaterial({ map: faceTex, roughness: 0.32, metalness: 0.8 });
-
-  // 245 front, 335 rear: the F40's back tyres are half again as wide as its
-  // fronts, and that mismatch is a good part of why the tail looks like it does.
-  for (const s of [{ r: 0.350, w: 0.30, x: 0.84, z: -1.31, front: 1 },
-                   { r: 0.375, w: 0.42, x: 0.80, z:  1.31, front: 0 }]) {
+  const faceMat = new THREE.MeshStandardMaterial({ map: spec.face(), roughness: 0.32, metalness: 0.8 });
+  for (const s of spec.tyres) {
     const tyreGeo = new THREE.CylinderGeometry(s.r, s.r, s.w, 18);
-    // 17 inch rims under a low-profile tyre — the barrel is most of the wheel
-    const rimGeo = new THREE.CylinderGeometry(s.r * 0.70, s.r * 0.70, s.w + 0.006, 16);
+    const rimGeo = new THREE.CylinderGeometry(s.r * s.rim, s.r * s.rim, s.w + 0.006, 16);
     for (const sx of [-1, 1]) {
       const w = new THREE.Group();
       const tyre = new THREE.Mesh(tyreGeo, tyreMat);
@@ -767,13 +923,197 @@ const wheels = [], steerHolders = [];
       const holder = new THREE.Group();
       holder.position.set(sx * s.x, s.r, s.z);
       holder.add(w);
-      chassis.add(holder);
+      group.add(holder);
       wheels.push(w);
       if (s.front) steerHolders.push(holder);
     }
   }
+  return group;
 }
+
+const CARS = [{
+  // A Ferrari F40: 4.76 m long, 1.98 wide, 1.14 tall over a 2.62 m wheelbase,
+  // and almost every one of those is the real car's. The shape is a wedge —
+  // flat low nose, cabin shoved right forward, engine deck chopped off square —
+  // with the wing standing over the tail.
+  name: 'FERRARI F40', blurb: '1987 · MID ENGINE',
+  stats: '1100 kg · twin-turbo V8<br>violent, light, hates being provoked',
+  wb: 2.62, track: 0.80, axle: 1.31, mass: 1100, torque: 430, shadow: [2.9, 5.5],
+  paint: 0xcf1622, gloss: 0.36, flake: 0.0,
+  width: 1.80, glassWidth: 2.05,
+  body: [
+    [ 2.38, 0.30], [ 2.42, 0.50], [ 2.24, 0.62],   // splitter lip, nose, over the front
+    [ 1.62, 0.76], [ 1.02, 0.82],                  // flat front deck, then the cowl
+    [ 0.34, 1.14], [-0.42, 1.13],                  // screen at 65 degrees, short flat roof
+    [-1.18, 0.99], [-1.98, 0.96], [-2.28, 0.93],   // rear window, then the engine deck
+    [-2.34, 0.56], [-2.24, 0.30],                  // the tail, chopped square
+    [ 0.00, 0.22],                                 // floor
+  ],
+  glass: [
+    [[ 1.067, 0.919], [ 0.387, 1.239], [ 0.307, 1.169], [ 0.987, 0.859]],
+    [[ 0.360, 1.160], [-0.420, 1.150], [-0.560, 0.900], [ 0.460, 0.880]],
+    [[-0.460, 1.228], [-1.220, 1.088], [-1.120, 0.998], [-0.380, 1.138]],
+  ],
+  // More tumblehome than almost anything, and a roof barely two thirds the
+  // width of its hips. In plan the nose comes to a point while the Kamm tail
+  // stays nearly full width; z is signed here, and negative is forward.
+  section: (y, z) => {
+    const waist = 0.70 + 0.30 * smoothstep(0.26, 0.68, y)     // sills in, arches out
+                       - 0.28 * smoothstep(0.86, 1.14, y);    // tumblehome to the roof
+    return waist * (1 - 0.30 * smoothstep(1.45, 2.42, -z))    // the nose narrows hard
+                 * (1 - 0.08 * smoothstep(1.80, 2.34, z));    // the tail barely tucks
+  },
+  // 245 front, 335 rear: the F40's back tyres are half again as wide as its
+  // fronts, and that mismatch is a good part of why the tail looks like it does.
+  tyres: [{ r: 0.350, w: 0.30, x: 0.84, z: -1.31, rim: 0.70, front: 1 },
+          { r: 0.375, w: 0.42, x: 0.80, z:  1.31, rim: 0.70, front: 0 }],
+  face: () => makeWheelTexture(5, '#9aa1a8', '#aeb5bc', '#e8c53c', 16),
+  trim: ({ box, disc, dark, chrome, redLamp, whiteLamp }) => {
+    // The wing. Nothing else on the car is as recognisable from a quarter mile
+    // away, so it gets the full treatment: blade at a few degrees of attack,
+    // end plates, and two struts standing off the deck.
+    box(1.86, 0.05, 0.42, 0.00, 1.16, 2.00, dark, 0.12);
+    for (const sx of [-1, 1]) {
+      box(0.04, 0.20, 0.46, sx * 0.95, 1.17, 2.00, dark);
+      box(0.07, 0.20, 0.24, sx * 0.50, 1.06, 2.04, dark);
+    }
+    // Tail: black panel, two round lamps a side, three pipes, diffuser.
+    box(1.56, 0.34, 0.06, 0, 0.73, 2.42, dark);
+    box(1.24, 0.16, 0.36, 0, 0.17, 2.08, dark);
+    for (const sx of [-1, 1]) {
+      disc(0.085, 0.05, sx * 0.29, 0.73, 2.46, redLamp);
+      disc(0.085, 0.05, sx * 0.51, 0.73, 2.46, redLamp);
+    }
+    for (const ex of [-0.14, 0, 0.14]) disc(0.055, 0.12, ex, 0.42, 2.40, chrome);
+    // Louvres over the engine cover, in its plane and a shade proud of it.
+    for (const lz of [0.62, 0.82, 1.02]) box(1.15, 0.03, 0.09, 0, 1.345 - 0.184 * lz, lz, dark, 0.182);
+    for (const sx of [-1, 1]) {
+      box(0.10, 0.18, 0.66, sx * 0.99, 0.72,  0.55, dark);   // intercooler scoop
+      box(0.14, 0.04, 0.05, sx * 0.98, 0.86, -0.96, dark);   // mirror stalk
+      box(0.09, 0.11, 0.16, sx * 1.07, 0.90, -0.98, dark);   // mirror
+      // Headlamps popped up. Hidden on the real car, but hidden lamps at dusk
+      // are just a smooth nose — raised, they are the front end's only detail.
+      box(0.34, 0.14, 0.30, sx * 0.50, 0.85, -1.780, dark);
+      box(0.30, 0.10, 0.05, sx * 0.50, 0.85, -1.945, whiteLamp);
+      box(0.22, 0.12, 0.10, sx * 0.40, 0.41, -2.500, dark);  // outer nose intake
+    }
+    box(0.76, 0.05, 0.30, 0, 0.755, -2.05, dark);            // radiator exit vent
+    box(0.52, 0.14, 0.10, 0, 0.420, -2.500, dark);           // centre nose intake
+    box(1.10, 0.06, 0.40, 0, 0.180, -2.18, dark);            // splitter
+  },
+}, {
+  // A BMW M2: 4.80 m long, 1.89 wide, 1.40 tall over a 2.75 m wheelbase. Every
+  // proportion is the opposite of the Ferrari's — long bonnet ahead of a cabin
+  // set well back, an upright glasshouse, a notchback boot — which is the whole
+  // point of having two of them.
+  name: 'BMW M2', blurb: '2023 · FRONT ENGINE',
+  stats: '1700 kg · turbo straight six<br>heavy, planted, happy sideways',
+  wb: 2.75, track: 0.785, axle: 1.375, mass: 1700, torque: 450, shadow: [2.85, 5.4],
+  paint: 0x1c56b0, gloss: 0.30, flake: 0.12,
+  width: 1.71, glassWidth: 1.95,
+  body: [
+    [ 2.28, 0.30], [ 2.32, 0.56], [ 2.24, 0.78],   // bumper lip, bumper face, over the lamps
+    [ 1.88, 0.85], [ 1.12, 0.92],                  // long flat bonnet to the cowl
+    [ 0.40, 1.28], [-0.62, 1.31],                  // screen, then the roof
+    [-1.20, 1.25], [-1.72, 1.02],                  // backlight down to the C-pillar
+    [-1.96, 0.95], [-2.24, 0.92],                  // boot lid
+    [-2.30, 0.62], [-2.22, 0.32],                  // tail face and rear bumper
+    [ 0.00, 0.26],                                 // floor
+  ],
+  glass: [
+    [[ 1.169, 1.018], [ 0.449, 1.378], [ 0.369, 1.308], [ 1.089, 0.948]],
+    // the kink is that short forward-and-down segment at the back of the door
+    [[ 0.420, 1.260], [-0.640, 1.280], [-1.360, 1.100], [-1.220, 0.990], [ 0.520, 0.980]],
+    [[-1.245, 1.351], [-1.765, 1.121], [-1.685, 1.031], [-1.165, 1.261]],
+  ],
+  // Far less tumblehome than the Ferrari — the glasshouse stands nearly upright
+  // — and a blunt nose that barely narrows, because it has two grilles to fit.
+  section: (y, z) => {
+    const waist = 0.72 + 0.28 * smoothstep(0.30, 0.74, y)
+                       - 0.24 * smoothstep(1.00, 1.32, y);
+    return waist * (1 - 0.14 * smoothstep(1.70, 2.32, -z))
+                 * (1 - 0.12 * smoothstep(1.72, 2.30, z));
+  },
+  tyres: [{ r: 0.355, w: 0.28, x: 0.795, z: -1.375, rim: 0.76, front: 1 },
+          { r: 0.365, w: 0.32, x: 0.785, z:  1.375, rim: 0.76, front: 0 }],
+  face: () => makeWheelTexture(10, '#6f757c', '#8b9198', '#1f4494', 7),
+  trim: ({ box, disc, dark, chrome, redLamp, whiteLamp, paint }) => {
+    for (const sx of [-1, 1]) {
+      box(0.42, 0.46, 0.10, sx * 0.245, 0.72, -2.39, dark);  // kidney grille, half recessed
+      box(0.40, 0.16, 0.06, sx * 0.66, 0.80, -2.33, dark);   // lamp surround
+      box(0.36, 0.10, 0.08, sx * 0.66, 0.80, -2.36, whiteLamp);
+      box(0.40, 0.16, 0.10, sx * 0.56, 0.40, -2.40, dark);   // bumper corner intake
+      box(0.08, 0.10, 0.24, sx * 0.965, 0.82, -0.90, dark);  // vent behind the front arch
+      box(0.09, 0.13, 2.10, sx * 0.730, 0.36,  0.10, dark);  // sill under the doors
+      box(0.14, 0.04, 0.05, sx * 0.970, 1.00, -0.72, dark);  // mirror stalk
+      box(0.10, 0.12, 0.20, sx * 1.060, 1.03, -0.75, dark);  // mirror
+      box(0.42, 0.13, 0.06, sx * 0.520, 0.78,  2.39, redLamp);
+      disc(0.052, 0.12, sx * 0.44, 0.40, 2.36, chrome);      // quad pipes
+      disc(0.052, 0.12, sx * 0.60, 0.40, 2.36, chrome);
+    }
+    box(0.70, 0.14, 0.10, 0, 0.38, -2.42, dark);             // centre bumper intake
+    box(1.34, 0.06, 0.42, 0, 0.16, -2.14, dark);             // front splitter
+    box(1.44, 0.22, 0.05, 0, 0.78,  2.375, dark);            // panel between the lamps
+    box(1.40, 0.05, 0.20, 0, 1.06,  2.16, paint);            // ducktail lip
+    box(1.34, 0.14, 0.34, 0, 0.17,  2.06, dark);             // rear diffuser
+  },
+}];
+
+// Both cars are built up front and one of them is simply hidden. They are ~15k
+// triangles each, a hidden group costs nothing to skip, and it means changing
+// car is a visibility flag rather than tearing down and rebuilding geometry
+// while the world is streaming past.
+const carGroups = CARS.map(s => { const g = buildCar(s); chassis.add(g); return g; });
+
+const shadow = new THREE.Mesh(new THREE.PlaneGeometry(2.9, 5.5),
+  new THREE.MeshBasicMaterial({
+    map: makeBlobTexture(0.62, 0), transparent: true, depthWrite: false, opacity: 0.85,
+  }));
+shadow.rotation.x = -Math.PI / 2;
+shadow.position.y = 0.035;
+car.add(shadow);   // stays flat on the ground rather than rolling with the body
 scene.add(car);
+
+// ================= car selection =================
+// The handful of numbers the physics needs that differ between the two. Mass is
+// the interesting one: it divides out of the grip limit, so both cars corner at
+// the same g — it only changes how hard the engine has to push, which is exactly
+// the difference between six hundred kilos of Ferrari and of BMW.
+let carIndex = 0, picking = true;
+let CAR_WB = 2.62, CAR_TRACK = 0.80, CAR_AXLE = 1.31;
+let MASS = 1100, PEAK_TQ = 430;
+
+const pickEl = document.getElementById('pick');
+const pickCards = document.getElementById('pickcards');
+CARS.forEach((s, i) => {
+  const b = document.createElement('button');
+  b.className = 'pcard';
+  b.innerHTML = `<b>${s.name}</b><i>${s.blurb}</i><em>${s.stats}</em>`;
+  b.addEventListener('click', () => { selectCar(i); closePicker(); });
+  pickCards.appendChild(b);
+});
+
+function selectCar(i) {
+  carIndex = i;
+  const s = CARS[i];
+  carGroups.forEach((g, k) => { g.visible = k === i; });
+  CAR_WB = s.wb; CAR_TRACK = s.track; CAR_AXLE = s.axle;
+  MASS = s.mass; PEAK_TQ = s.torque;
+  shadow.scale.set(s.shadow[0] / 2.9, s.shadow[1] / 5.5, 1);
+  const cards = pickCards.children;
+  for (let k = 0; k < cards.length; k++) cards[k].className = k === i ? 'pcard on' : 'pcard';
+}
+function openPicker() {
+  picking = true;
+  pickEl.style.display = 'flex';
+  for (const k in keys) keys[k] = false;   // no key survives the overlay opening
+}
+function closePicker() {
+  picking = false;
+  pickEl.style.display = 'none';
+  initAudio();                              // this counts as the user gesture
+}
+selectCar(0);
 
 // skid marks (pooled)
 const SKIDS = 300;
@@ -825,10 +1165,22 @@ function setManual(on) {
 }
 
 addEventListener('keydown', e => {
+  // While the picker is up nothing else gets a look at the keyboard, or holding
+  // an arrow to browse cars would also be holding a lock of steering on.
+  if (picking) {
+    if (e.code === 'ArrowLeft') selectCar((carIndex + CARS.length - 1) % CARS.length);
+    else if (e.code === 'ArrowRight') selectCar((carIndex + 1) % CARS.length);
+    else if (e.code === 'Enter' || e.code === 'Space' || e.code === 'Escape') closePicker();
+    else return;
+    e.preventDefault();
+    return;
+  }
+
   const k = e.key.toLowerCase();
   keys[k] = true;
   if (e.shiftKey) keys['shift'] = true;
 
+  if (k === 'v') { openPicker(); e.preventDefault(); return; }
   if (k === 'c') camMode = (camMode + 1) % 3;
   if (k === 'm') muted = !muted;
   if (k === 't') setManual(!manual);
@@ -867,7 +1219,8 @@ const RPM2RAD = Math.PI / 30;
 const IDLE = 850, REDLINE = 7000, LIMITER = 6850, BURST = 8400;
 const REV_CRIT = 7700;      // the lamp goes red here; you have maybe half a second
 const REV_MAX = 2.2;        // m/s — reverse will not select above walking pace
-const PEAK_TQ = 400, MASS = 1350;
+// PEAK_TQ and MASS live with the car specs — they are the two numbers that
+// actually differ between a 1100 kg Ferrari and a 1700 kg BMW.
 const IE = 0.42;            // engine + flywheel inertia, kg m^2
 const CLUTCH_CAP = 950;     // Nm the clutch can hold when fully engaged
 const CLUTCH_STIFF = 55;    // Nm per rad/s of slip
@@ -1027,7 +1380,12 @@ const MAX_DPR = Math.min(devicePixelRatio, 2);
 let dpr = MAX_DPR, frameAcc = 0, frames = 0;
 
 renderer.setAnimationLoop(() => {
-  const dt = Math.min(clock.getDelta(), 0.04);
+  // Clamped at BOTH ends. Clock returns exactly 0 for the first frame, and
+  // several forces below are written as "whatever it takes to stop, but no more
+  // than the tyres can do" — |v|/dt against a cap. At dt = 0 that is 0/0, and a
+  // single NaN there poisons the position, the arc length and every probe made
+  // from it for the rest of the session.
+  const dt = clamp(clock.getDelta(), 1e-4, 0.04);
 
   frameAcc += dt; frames++;
   if (frames >= 45) {
@@ -1040,8 +1398,10 @@ renderer.setAnimationLoop(() => {
     if (avg > 0.0215 || frames >= 180) { frameAcc = 0; frames = 0; }
   }
 
-  const gas = (keys['w'] || keys['arrowup']) ? 1 : 0;
-  const brakeIn = (keys['s'] || keys['arrowdown']) ? 1 : 0;
+  // The picker holds the car on the brake rather than pausing the loop, so the
+  // world keeps rendering behind it and you can see what you are choosing.
+  const gas = (!picking && (keys['w'] || keys['arrowup'])) ? 1 : 0;
+  const brakeIn = (picking || keys['s'] || keys['arrowdown']) ? 1 : 0;
   const steerIn = ((keys['d'] || keys['arrowright']) ? 1 : 0) - ((keys['a'] || keys['arrowleft']) ? 1 : 0);
   const handbrake = keys[' '] ? 1 : 0;
 
@@ -1085,7 +1445,7 @@ renderer.setAnimationLoop(() => {
   // ---------- engine + clutch ----------
   const gripAcc = grip * 9.81;
   // only the driven axle carries traction, so first gear can light up the tyres
-  const tractionN = gripAcc * MASS * (handbrake ? 0.16 : 0.58);
+  const tractionN = gripAcc * MASS * (handbrake ? 0.24 : 0.58);
   const gr = ratio(gear) * FINAL;
   // Most torque the driven tyres can hold, referred back to the engine side.
   // Past this they let go — which is both why first gear spins up and why a
@@ -1140,7 +1500,9 @@ renderer.setAnimationLoop(() => {
   let accel = force / MASS;
   accel -= Math.sign(vLong) * (rollRes * 9.81 + 0.00042 * vLong * vLong);
   if (brakeIn) accel -= Math.sign(vLong) * Math.min(Math.abs(vLong) / dt, gripAcc * 0.95);
-  if (handbrake) accel -= Math.sign(vLong) * Math.min(Math.abs(vLong) / dt, 6);
+  // A locked rear axle still scrubs speed off, but far less once the car is
+  // properly sideways — otherwise every drift dies a second after it starts.
+  if (handbrake) accel -= Math.sign(vLong) * Math.min(Math.abs(vLong) / dt, 6.5 - 4 * slipAmount);
   // It let go and locked the driven axle for a moment. This is the part that puts
   // you in the scenery — the bang is only the announcement.
   if (seize > 0) accel -= Math.sign(vLong) * Math.min(Math.abs(vLong) / dt, gripAcc * 0.55);
@@ -1162,25 +1524,44 @@ renderer.setAnimationLoop(() => {
   const steerRate = 5.5 - 2.0 * smoothstep(0, 40, speedAbs);
   steerAngle += (steerIn * maxSteer - steerAngle) * (1 - Math.exp(-dt * steerRate));
 
-  const WB = 2.62;   // matches where the wheels actually are, F40 to the centimetre
-  // cornering is capped by the grip actually available — the car stays planted
-  // until the handbrake or wheelspin takes that grip away
-  const latAvail = gripAcc * (handbrake ? 0.38 : 1) * (1 - 0.45 * Math.min(wheelSpin, 1));
-  const yawGripMax = latAvail / Math.max(5, speedAbs);
-  let yawTarget = clamp((vLong / WB) * Math.tan(steerAngle), -yawGripMax, yawGripMax);
-  if (airborne) yawTarget = yawRate;
-  yawRate += (yawTarget - yawRate) * (1 - Math.exp(-dt * (airborne ? 0.5 : 7)));
-  // a sliding car weathervanes its nose toward the direction of travel
+  // Cornering is capped by the grip actually available, so the car stays planted
+  // until something takes that grip away. The handbrake locks the REAR axle
+  // only, and drifting is what falls out of the front and rear then disagreeing:
+  // the front can swing the car faster than a steady corner ever would, the
+  // tail's sideways velocity survives instead of being scrubbed straight off,
+  // and the weathervane that normally straightens the car is turned right down
+  // so the slide holds until you steer or lift out of it.
+  const latGrip = gripAcc * (1 - 0.45 * Math.min(wheelSpin, 1));
+  const latAvail = latGrip * (handbrake ? 0.30 : 1);
+  const yawGripMax = latGrip * (1 + 0.9 * handbrake) / Math.max(5, speedAbs);
+  // The front tyres are steered relative to where the car is actually GOING,
+  // not where it is pointing. Once the body has a slip angle of its own, a given
+  // handful of lock is asking for far less rotation than it looks like, and past
+  // a point it is asking for the opposite. That is the whole reason a drift
+  // settles at an angle roughly equal to the lock you are holding instead of
+  // winding up into a spin — and it costs one addition. In grip it costs
+  // nothing, because the tyres never let the body slip more than a degree.
   const slipAngle = Math.atan2(vLat, Math.max(2, speedAbs));
-  yawRate += slipAngle * speedAbs * 0.016 * (handbrake ? 2.0 : 1) * dt * (airborne ? 0 : 1);
+  let yawTarget = clamp((vLong / CAR_WB) * Math.tan(steerAngle + slipAngle), -yawGripMax, yawGripMax);
+  if (airborne) yawTarget = yawRate;
+  yawRate += (yawTarget - yawRate) * (1 - Math.exp(-dt * (airborne ? 0.5 : handbrake ? 9 : 7)));
+  // and it weathervanes its nose toward the direction of travel on top of that
+  yawRate += slipAngle * speedAbs * 0.016 * (handbrake ? 0.5 : 1) * dt * (airborne ? 0 : 1);
   yawRate = clamp(yawRate, -2.6, 2.6);
   yaw += yawRate * dt;
 
-  // lateral velocity: cornering pushes it out, tyre grip pulls it back
-  vLat += -yawRate * vLong * dt;
+  // Lateral velocity: cornering pushes it out, tyre grip pulls it back. Both
+  // terms of the rotation are here — turning trades forward velocity into
+  // sideways velocity AND back again. With only the first half the car gains
+  // speed out of nowhere every time it rotates, so a slide could never settle;
+  // as a matched pair they conserve it, and the tyres are the only thing that
+  // takes energy out. That is the difference between a drift and a spin.
+  const vF = vLong, vR = vLat;
+  vLat += -yawRate * vF * dt;
+  vLong += yawRate * vR * dt;
   const kill = clamp(-vLat / Math.max(dt, 1e-3), -latAvail, latAvail);
   vLat += kill * dt;
-  vLat *= Math.exp(-dt * 0.6);
+  vLat *= Math.exp(-dt * (handbrake ? 0.3 : 0.6));
   slipAmount = clamp((Math.abs(vLat) - 1.2) / 5, 0, 1);
 
   // ---------- integrate world position ----------
@@ -1264,8 +1645,8 @@ renderer.setAnimationLoop(() => {
     if (skidTimer <= 0) {
       skidTimer = 0.016;
       for (const side of [-1, 1]) {
-        const sx = pos.x + rx * side * 0.80 - fx * 1.31;   // under the rear tyres
-        const sz = pos.z + rz * side * 0.80 - fz * 1.31;
+        const sx = pos.x + rx * side * CAR_TRACK - fx * CAR_AXLE;   // under the rear tyres
+        const sz = pos.z + rz * side * CAR_TRACK - fz * CAR_AXLE;
         addSkid(sx, groundY, sz, -yaw - Math.atan2(vLat, Math.max(1, Math.abs(vLong))));
       }
     }
