@@ -1,0 +1,1109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>slow drive</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #2a2330; }
+  canvas { display: block; }
+  /* lens vignette — costs nothing and does most of the work a bloom pass would */
+  #grade {
+    position: fixed; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse 78% 68% at 50% 46%, rgba(0,0,0,0) 40%, rgba(26,10,24,.46) 100%);
+  }
+  #hud {
+    position: fixed; inset: 0; pointer-events: none;
+    font-family: "Segoe UI", system-ui, sans-serif; color: #fff;
+    text-shadow: 0 1px 5px rgba(0,0,0,.5);
+    user-select: none;
+  }
+  #title { position: absolute; top: 18px; left: 22px; font-size: 19px; font-weight: 600; letter-spacing: 2px; opacity: .8; }
+  #dist  { position: absolute; top: 21px; right: 24px; font-size: 14px; opacity: .8; }
+
+  #cluster { position: absolute; right: 30px; bottom: 26px; text-align: right; }
+  #speedrow { display: flex; align-items: flex-end; justify-content: flex-end; gap: 10px; }
+  #speed { font-size: 62px; font-weight: 200; line-height: .9; letter-spacing: -2px; }
+  #unit  { font-size: 12px; letter-spacing: 3px; opacity: .75; padding-bottom: 8px; }
+
+  /* the danger band is painted into the dial itself, like a real cluster: the bar
+     is scaled to BURST, so redline sits at 7000/8400 and an over-rev is visible */
+  #tach {
+    width: 260px; height: 7px; margin: 12px 0 0 auto; border-radius: 4px; overflow: hidden;
+    background: linear-gradient(to right, rgba(0,0,0,.34) 0 83.3%, rgba(255,76,59,.32) 83.3% 100%);
+  }
+  #tachfill { height: 100%; width: 0%; background: #eaeaea; transition: background .12s; }
+  #tachfill.red { background: #ff4c3b; }
+  #meta { margin-top: 9px; font-size: 12px; letter-spacing: 2px; opacity: .8; display: flex; gap: 14px; justify-content: flex-end; }
+  #meta .on { color: #ffd166; }
+
+  #lamps { margin-top: 7px; height: 13px; font-size: 10.5px; letter-spacing: 3px; display: flex; gap: 14px; justify-content: flex-end; }
+  #lamps span { opacity: 0; transition: opacity .12s; }
+  #lampRev.on   { opacity: .95; color: #ffd166; }
+  #lampRev.crit { opacity: 1;   color: #ff4c3b; }
+  #lampEng.on   { opacity: 1;   color: #ff4c3b; }
+
+  #gear {
+    position: absolute; right: 30px; bottom: 132px;
+    font-size: 84px; font-weight: 300; line-height: 1; opacity: .95;
+    transform-origin: 100% 50%;
+  }
+  #gear.warn { color: #ff4c3b; }
+  #clutchlamp { position: absolute; right: 30px; bottom: 226px; font-size: 12px; letter-spacing: 3px; color: #6fd3ff; opacity: 0; transition: opacity .1s; }
+  #stall { position: absolute; left: 50%; top: 46%; transform: translateX(-50%); text-align: center; font-size: 22px; letter-spacing: 3px; color: #ff6b5b; display: none; }
+  #stall small { display: block; font-size: 12px; letter-spacing: 2px; opacity: .8; margin-top: 8px; color: #fff; }
+
+  #help { position: absolute; bottom: 24px; left: 22px; font-size: 12.5px; line-height: 1.85; opacity: .85; transition: opacity 1.5s; }
+  #help kbd { background: rgba(255,255,255,.16); border-radius: 4px; padding: 1px 6px; font: inherit; font-size: 11.5px; }
+</style>
+</head>
+<body>
+<div id="grade"></div>
+<div id="hud">
+  <div id="title">SLOW DRIVE</div>
+  <div id="dist">0.0 km</div>
+
+  <div id="clutchlamp">CLUTCH</div>
+  <div id="gear">N</div>
+  <div id="cluster">
+    <div id="speedrow"><div id="speed">0</div><div id="unit">KM/H</div></div>
+    <div id="tach"><div id="tachfill"></div></div>
+    <div id="meta"><span id="rpm">0 RPM</span><span id="mode">AUTO</span></div>
+    <div id="lamps"><span id="lampRev">REV</span><span id="lampEng">ENGINE</span></div>
+  </div>
+
+  <div id="stall">STALLED<small>hold SHIFT to restart</small></div>
+
+  <div id="help">
+    <kbd>W</kbd>/<kbd>S</kbd> gas / brake &nbsp; <kbd>A</kbd>/<kbd>D</kbd> steer &nbsp; <kbd>Space</kbd> handbrake<br>
+    <kbd>Shift</kbd> clutch &mdash; <em>hold it to change gear</em> &nbsp; <kbd>1</kbd>–<kbd>6</kbd> gears &nbsp; <kbd>Q</kbd>/<kbd>E</kbd> down / up<br>
+    to pull away: hold <kbd>Shift</kbd>, select <kbd>1</kbd>, rev up, then ease off<br>
+    <kbd>R</kbd> reverse &nbsp; <kbd>0</kbd> neutral &nbsp; <kbd>T</kbd> back to auto<br>
+    <kbd>C</kbd> camera &nbsp; <kbd>P</kbd> fresh car &nbsp; <kbd>M</kbd> sound
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+// ================= world constants =================
+const SEG = 3, CHUNK = 60, HALF = 5;
+const AHEAD = 5, BEHIND = 2;
+
+// ================= noise / helpers =================
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const fract = n => n - Math.floor(n);
+const hash2 = (x, z) => fract(Math.sin(x * 127.1 + z * 311.7) * 43758.5453);
+function vnoise(x, z) {
+  const ix = Math.floor(x), iz = Math.floor(z), fx = x - ix, fz = z - iz;
+  const a = hash2(ix, iz), b = hash2(ix + 1, iz), c = hash2(ix, iz + 1), d = hash2(ix + 1, iz + 1);
+  const ux = fx * fx * (3 - 2 * fx), uz = fz * fz * (3 - 2 * fz);
+  return a + (b - a) * ux + (c - a) * uz + (a - b - c + d) * ux * uz;
+}
+const smoothstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+function mulberry32(seed) {
+  return function () {
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+// ================= road spline =================
+const curvature = s =>
+  0.0016 * Math.sin(s * 0.0011) + 0.0022 * Math.sin(s * 0.00053 + 2.1) + 0.0012 * Math.sin(s * 0.0021 + 4.2);
+const elevation = s =>
+  7 * Math.sin(s * 0.0021 + 1) + 4 * Math.sin(s * 0.0049 + 2) + 14 * Math.sin(s * 0.0008) + 1.5 * Math.sin(s * 0.011);
+
+const pts = [];
+const gen = { x: 0, z: 0, heading: 0 };
+function ensurePoints(n) {
+  while (pts.length <= n) {
+    const i = pts.length, s = i * SEG;
+    gen.heading += curvature(s) * SEG;
+    gen.x += Math.sin(gen.heading) * SEG;
+    gen.z -= Math.cos(gen.heading) * SEG;
+    pts.push({ x: gen.x, y: elevation(s), z: gen.z, heading: gen.heading });
+  }
+}
+ensurePoints(4);
+
+function getPose(s) {
+  const f = Math.max(0, s / SEG);
+  const i0 = Math.floor(f), t = f - i0;
+  ensurePoints(i0 + 1);
+  const a = pts[i0], b = pts[i0 + 1];
+  return {
+    x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t,
+    heading: a.heading + (b.heading - a.heading) * t,
+  };
+}
+
+// Four octaves, and the amplitude of each grows with distance from the road.
+// Near the verge the ground has to stay flat enough to drive on; a kilometre out
+// it wants to be a landform, or the horizon reads as a flat green sea.
+function terrainY(roadY, x, z, absd) {
+  const t = smoothstep(7, 52, absd);
+  const n0 = vnoise(x * 0.0013, z * 0.0013);   // hills
+  const n2 = vnoise(x * 0.0040, z * 0.0040);   // folds
+  const n1 = vnoise(x * 0.0200, z * 0.0200);   // hummocks
+  const n3 = vnoise(x * 0.0900, z * 0.0900);   // scrub-scale roughness
+  const relief = (n0 - 0.5) * 2 * (9 + absd * 0.36)
+               + (n2 - 0.5) * 2 * (5 + absd * 0.15)
+               + (n1 - 0.5) * 4.5 + (n3 - 0.5) * 1.2;
+  return roadY + t * relief - 0.45 * smoothstep(5, 10, absd);
+}
+
+// project a world point onto the road frame; returns ground height, lateral offset, arc length
+function probe(x, z, sHint) {
+  let p = getPose(sHint);
+  for (let k = 0; k < 2; k++) {
+    const fx = Math.sin(p.heading), fz = -Math.cos(p.heading);
+    sHint = Math.max(0, sHint + (x - p.x) * fx + (z - p.z) * fz);
+    p = getPose(sHint);
+  }
+  const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
+  const d = (x - p.x) * rx + (z - p.z) * rz;
+  const ad = Math.abs(d);
+  const y = terrainY(p.y, x, z, ad) + 0.07 * (1 - smoothstep(HALF, HALF + 1.5, ad));
+  return { y, d, s: sHint };
+}
+
+// ================= renderer =================
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+// The sun sits on the horizon, so anything facing it is far brighter than white.
+// Filmic tone mapping gives those highlights somewhere to roll off to instead of
+// clipping, which is most of the difference between "3D" and "photographed".
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.1, 4000);
+
+// Dusk palette. Everything else in the file is graded against these four values —
+// the fog, the terrain, the lights and the vignette all come back to them.
+const SKY_TOP = new THREE.Color(0x3f63a8);
+const SKY_MID = new THREE.Color(0xb98cb6);
+const SKY_HAZE = new THREE.Color(0xf2aea4);
+const SUN_TINT = new THREE.Color(0xffc79a);
+const SUN_DIR = new THREE.Vector3(0.40, 0.15, -0.90).normalize();
+
+scene.fog = new THREE.FogExp2(SKY_HAZE, 0.0016);
+
+// Sky dome. A vertical three-stop ramp plus a glow around the sun direction —
+// a flat background colour is the single most game-looking thing you can do.
+const skyDome = new THREE.Mesh(
+  new THREE.SphereGeometry(2600, 32, 20),
+  new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false, fog: false,
+    uniforms: {
+      top: { value: SKY_TOP }, mid: { value: SKY_MID }, haze: { value: SKY_HAZE },
+      sunCol: { value: SUN_TINT }, sunDir: { value: SUN_DIR },
+    },
+    vertexShader: `
+      varying vec3 vDir;
+      void main() {
+        vDir = position;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`,
+    fragmentShader: `
+      uniform vec3 top, mid, haze, sunCol, sunDir;
+      varying vec3 vDir;
+      void main() {
+        vec3 d = normalize(vDir);
+        vec3 c = mix(haze, mid, smoothstep(-0.03, 0.17, d.y));
+        c = mix(c, top, smoothstep(0.11, 0.66, d.y));
+        float s = max(dot(d, normalize(sunDir)), 0.0);
+        c += sunCol * (pow(s, 4.0) * 0.28 + pow(s, 64.0) * 0.60);
+        gl_FragColor = vec4(c, 1.0);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }`,
+  })
+);
+skyDome.frustumCulled = false;
+scene.add(skyDome);
+
+// Sky fill is lavender from above, warm dirt bounce from below.
+scene.add(new THREE.HemisphereLight(0x94a8dc, 0x4a3626, 0.95));
+// The sun and its target ride with the car: a directional light aims at its
+// target's position, and we drive thousands of units away from the origin.
+const sun = new THREE.DirectionalLight(0xffb583, 2.5);
+scene.add(sun, sun.target);
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// ================= materials =================
+// 256 px spans the full 10 m width, so one pixel is about 4 cm — enough to draw
+// the lane markings at their real width instead of approximating them.
+function makeRoadTexture() {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 512;
+  const g = c.getContext('2d');
+  g.fillStyle = '#37393f'; g.fillRect(0, 0, 256, 512);
+  for (let i = 0; i < 14000; i++) {           // aggregate
+    const v = 44 + Math.random() * 38 | 0;
+    g.fillStyle = `rgba(${v},${v},${v + 6},.55)`;
+    g.fillRect(Math.random() * 256 | 0, Math.random() * 512 | 0, 2, 2);
+  }
+  // Four polished wheel tracks — two lanes, two wheels each. Traffic burnishes
+  // the stone smooth along these and leaves the rest coarse.
+  g.fillStyle = 'rgba(22,23,27,.26)';
+  for (const u of [0.16, 0.34, 0.66, 0.84]) g.fillRect(u * 256 - 11, 0, 22, 512);
+  for (let i = 0; i < 40; i++) {              // tar-sealed cracks
+    g.strokeStyle = 'rgba(20,20,24,.5)'; g.lineWidth = 1 + Math.random();
+    g.beginPath();
+    let px = Math.random() * 256, py = Math.random() * 512;
+    g.moveTo(px, py);
+    for (let k = 0; k < 5; k++) g.lineTo(px += (Math.random() - 0.5) * 30, py += (Math.random() - 0.5) * 40);
+    g.stroke();
+  }
+  // markings: solid edge lines, and a double solid down the middle
+  g.fillStyle = '#cfccc3';
+  g.fillRect(9, 0, 7, 512); g.fillRect(240, 0, 7, 512);
+  g.fillRect(117, 0, 6, 512); g.fillRect(133, 0, 6, 512);
+  for (let i = 0; i < 2600; i++) {            // scuff the paint back
+    const x = Math.random() * 256 | 0, y = Math.random() * 512 | 0;
+    g.fillStyle = `rgba(60,60,64,${Math.random() * 0.5})`;
+    g.fillRect(x, y, 1, 2);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return tex;
+}
+const roadTex = makeRoadTexture();
+const roadMat = new THREE.MeshStandardMaterial({
+  map: roadTex, roughness: 0.86, metalness: 0.0,
+  bumpMap: roadTex, bumpScale: 0.012,          // the paint sits proud of the stone
+});
+const terrainMat = new THREE.MeshStandardMaterial({
+  vertexColors: true, roughness: 1.0, metalness: 0.0, side: THREE.DoubleSide,
+});
+
+// soft radial blob, reused for the contact shadow and the skid marks
+function makeBlobTexture(inner, outer) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  const rg = g.createRadialGradient(64, 64, 2, 64, 64, 64);
+  rg.addColorStop(0, `rgba(0,0,0,${inner})`);
+  rg.addColorStop(0.5, `rgba(0,0,0,${inner * 0.55})`);
+  rg.addColorStop(1, `rgba(0,0,0,${outer})`);
+  g.fillStyle = rg; g.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(c);
+}
+
+const sharedGeo = new Set();
+// One lump, flat-shaded and squashed differently per instance. Thousands of
+// these read as gorse far better than any amount of detail on a few dozen.
+const bushGeo = new THREE.IcosahedronGeometry(1, 0);
+const rockGeo = new THREE.DodecahedronGeometry(1, 0);
+const postGeo = new THREE.BoxGeometry(0.10, 0.95, 0.10);
+const capGeo = new THREE.BoxGeometry(0.115, 0.13, 0.115);
+[bushGeo, rockGeo, postGeo, capGeo].forEach(g => sharedGeo.add(g));
+const bushMat = new THREE.MeshStandardMaterial({ roughness: 0.95, metalness: 0, flatShading: true });
+const rockMat = new THREE.MeshStandardMaterial({ color: 0x6d6459, roughness: 0.95, metalness: 0, flatShading: true });
+const postMat = new THREE.MeshStandardMaterial({ color: 0xb9b2a6, roughness: 0.8, metalness: 0 });
+// the reflector catches the low sun long after the post itself has gone to shadow
+const capMat = new THREE.MeshStandardMaterial({ color: 0xff6a4a, roughness: 0.5, metalness: 0, emissive: 0x40100a });
+
+// ================= chunks =================
+const chunks = new Map();
+// Rings of terrain out to 760 m. The near ones are tight because that is where
+// the road cutting reads; the far ones are only there to give the fog a horizon.
+const OFFS = [5, 5.6, 7, 9.5, 14, 24, 42, 78, 135, 225, 350, 530, 760];
+const vergeCol = new THREE.Color(0x63702f);    // mown grass at the road edge
+const gravelCol = new THREE.Color(0x6f6553);   // shoulder
+const scrubCol = new THREE.Color(0x3d2a1e);    // dark heather
+const dryCol = new THREE.Color(0x6d5432);      // dead bracken
+const sageCol = new THREE.Color(0x5c5a35);     // grey-green scrub
+
+const BUSHES = 640;
+
+function buildChunk(ci) {
+  const i0 = ci * CHUNK;
+  ensurePoints(i0 + CHUNK + 1);
+  const group = new THREE.Group();
+  const solids = [];
+  const n = CHUNK + 1;
+
+  { // road ribbon
+    const pos = new Float32Array(n * 6), uv = new Float32Array(n * 4), idx = [];
+    for (let k = 0; k < n; k++) {
+      const p = pts[i0 + k];
+      const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
+      const y = p.y + 0.07, v = (i0 + k) * SEG / 12;
+      pos.set([p.x - rx * HALF, y, p.z - rz * HALF, p.x + rx * HALF, y, p.z + rz * HALF], k * 6);
+      uv.set([0, v, 1, v], k * 4);
+      if (k < n - 1) { const a = k * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    geo.setIndex(idx); geo.computeVertexNormals();
+    group.add(new THREE.Mesh(geo, roadMat));
+  }
+
+  { // terrain, one ribbon per side
+    const tmp = new THREE.Color();
+    for (const side of [-1, 1]) {
+      const cols = OFFS.length;
+      const pos = new Float32Array(n * cols * 3), col = new Float32Array(n * cols * 3), idx = [];
+      for (let k = 0; k < n; k++) {
+        const p = pts[i0 + k];
+        const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
+        for (let j = 0; j < cols; j++) {
+          const d = side * OFFS[j], x = p.x + rx * d, z = p.z + rz * d;
+          const o = (k * cols + j) * 3;
+          pos[o] = x; pos[o + 1] = terrainY(p.y, x, z, OFFS[j]); pos[o + 2] = z;
+          // two noise scales: broad heather/bracken patches, then a finer mottle
+          tmp.lerpColors(scrubCol, dryCol, vnoise(x * 0.012, z * 0.012));
+          tmp.lerp(sageCol, vnoise(x * 0.05, z * 0.05) * 0.5);
+          if (OFFS[j] < 6.2) tmp.lerp(gravelCol, 0.7);
+          else if (OFFS[j] < 8) tmp.lerp(vergeCol, 0.6);
+          else if (OFFS[j] < 11) tmp.lerp(vergeCol, 0.25);
+          col[o] = tmp.r; col[o + 1] = tmp.g; col[o + 2] = tmp.b;
+          if (k < n - 1 && j < cols - 1) {
+            const a = k * cols + j;
+            idx.push(a, a + 1, a + cols, a + 1, a + cols + 1, a + cols);
+          }
+        }
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      geo.setIndex(idx); geo.computeVertexNormals();
+      group.add(new THREE.Mesh(geo, terrainMat));
+    }
+  }
+
+  const rnd = mulberry32(ci * 2654435761 + 7);
+
+  { // scrub — the whole chunk's vegetation in one draw call
+    const im = new THREE.InstancedMesh(bushGeo, bushMat, BUSHES);
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+    const sc = new THREE.Vector3(), p3 = new THREE.Vector3(), col = new THREE.Color();
+    for (let b = 0; b < BUSHES; b++) {
+      const p = pts[i0 + Math.floor(rnd() * CHUNK)];
+      const side = rnd() < 0.5 ? -1 : 1;
+      const u = rnd();
+      // u squared crowds them near the road, where they are actually resolvable
+      const dist = 8 + u * u * 330;
+      const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
+      // scatter ALONG the road, never across it — a lateral jitter this size
+      // would plant bushes on the tarmac
+      const j = (rnd() - 0.5) * 9;
+      const x = p.x + rx * side * dist + Math.sin(p.heading) * j;
+      const z = p.z + rz * side * dist - Math.cos(p.heading) * j;
+      const r = (0.45 + rnd() * 1.25) * (1 + dist * 0.005);   // bigger far out, to stay visible
+      e.set(rnd() * 0.45, rnd() * 6.283, rnd() * 0.45);
+      sc.set(r * (0.85 + rnd() * 0.5), r * (0.42 + rnd() * 0.45), r * (0.85 + rnd() * 0.5));
+      p3.set(x, terrainY(p.y, x, z, dist) + sc.y * 0.35, z);
+      m.compose(p3, q.setFromEuler(e), sc);
+      im.setMatrixAt(b, m);
+      col.setHSL(0.055 + rnd() * 0.07, 0.30 + rnd() * 0.26, 0.13 + rnd() * 0.13, THREE.SRGBColorSpace);
+      im.setColorAt(b, col);
+    }
+    im.instanceMatrix.needsUpdate = true;
+    im.instanceColor.needsUpdate = true;
+    im.computeBoundingSphere();
+    group.add(im);
+  }
+
+  { // boulders — sparse, and the only thing out here you can actually hit
+    for (let t = 0; t < 5; t++) {
+      const p = pts[i0 + Math.floor(rnd() * CHUNK)];
+      const side = rnd() < 0.5 ? -1 : 1;
+      const dist = 12 + rnd() * 55;
+      const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
+      const x = p.x + rx * side * dist, z = p.z + rz * side * dist;
+      const r = 1.0 + rnd() * 1.1;
+      const rock = new THREE.Mesh(rockGeo, rockMat);
+      rock.scale.set(r, r * (0.6 + rnd() * 0.4), r * (0.8 + rnd() * 0.4));
+      rock.rotation.set(rnd(), rnd() * 6.283, rnd());
+      rock.position.set(x, terrainY(p.y, x, z, dist) + r * 0.35, z);
+      group.add(rock);
+      solids.push({ x, z, r: r * 0.8 });
+    }
+  }
+
+  for (let k = 0; k < CHUNK; k += 16) { // marker posts
+    const p = pts[i0 + k];
+    const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
+    for (const side of [-1, 1]) {
+      const post = new THREE.Mesh(postGeo, postMat);
+      post.position.set(p.x + rx * side * 6.3, p.y + 0.48, p.z + rz * side * 6.3);
+      const cap = new THREE.Mesh(capGeo, capMat);
+      cap.position.set(post.position.x, p.y + 0.89, post.position.z);
+      group.add(post, cap);
+    }
+  }
+
+  group.userData.solids = solids;
+  scene.add(group);
+  chunks.set(ci, group);
+}
+
+function disposeChunk(ci) {
+  const group = chunks.get(ci);
+  if (!group) return;
+  group.traverse(o => {
+    if (!o.isMesh) return;
+    if (!sharedGeo.has(o.geometry)) o.geometry.dispose();
+    // the scrub shares its geometry but owns its per-instance buffers
+    if (o.isInstancedMesh) o.dispose();
+  });
+  scene.remove(group);
+  chunks.delete(ci);
+}
+
+// ================= car =================
+const car = new THREE.Group();
+car.rotation.order = 'YXZ';
+const chassis = new THREE.Group();      // holds body roll/pitch from suspension
+car.add(chassis);
+{
+  // Side profile, extruded across the car and bevelled. A stack of boxes never
+  // reads as a car however you paint it — the silhouette is the whole game.
+  // Shape coords are (length, height); rotateY maps +length onto -Z, which is
+  // the direction the wheel layout below already calls "front".
+  const prof = [
+    [2.06, 0.32], [2.12, 0.50], [2.00, 0.64], [1.32, 0.68], [0.74, 0.72],
+    [0.30, 1.16], [-0.50, 1.24], [-1.18, 1.14], [-1.80, 0.86], [-2.04, 0.70],
+    [-2.10, 0.44], [-2.00, 0.28], [0.00, 0.25],
+  ];
+  const shape = new THREE.Shape();
+  shape.moveTo(prof[0][0], prof[0][1]);
+  for (let i = 1; i < prof.length; i++) shape.lineTo(prof[i][0], prof[i][1]);
+  shape.closePath();
+  const bodyGeo = new THREE.ExtrudeGeometry(shape, {
+    depth: 1.76, bevelEnabled: true, bevelSize: 0.09, bevelThickness: 0.09, bevelSegments: 3, curveSegments: 3,
+  });
+  bodyGeo.rotateY(Math.PI / 2);
+  bodyGeo.translate(-0.88, 0, 0);
+  const body = new THREE.Mesh(bodyGeo, new THREE.MeshStandardMaterial({
+    color: 0xe4e4e6, roughness: 0.32, metalness: 0.20,
+  }));
+
+  // The greenhouse is a second extrusion of just the cabin, made slightly WIDER
+  // and slightly TALLER than the body so it stands proud instead of z-fighting
+  // inside it. One continuous dark shell from screen over the roof to the tail.
+  // Its lower edge stays buried, which leaves a beltline strip along the flanks.
+  const gprof = [
+    [0.34, 1.27], [-0.50, 1.35], [-1.14, 1.25], [-1.62, 0.86],
+    [-0.60, 0.80], [0.60, 0.76],
+  ];
+  const gshape = new THREE.Shape();
+  gshape.moveTo(gprof[0][0], gprof[0][1]);
+  for (let i = 1; i < gprof.length; i++) gshape.lineTo(gprof[i][0], gprof[i][1]);
+  gshape.closePath();
+  const glassGeo = new THREE.ExtrudeGeometry(gshape, { depth: 2.0, bevelEnabled: false });
+  glassGeo.rotateY(Math.PI / 2);
+  glassGeo.translate(-1.0, 0, 0);
+  const glass = new THREE.Mesh(glassGeo, new THREE.MeshStandardMaterial({
+    color: 0x14181e, roughness: 0.14, metalness: 0.55,
+  }));
+
+  // Lamp depths are set against the bevelled shell, not the raw profile: the
+  // bevel pushes the real skin about 0.09 further out than the points above, so
+  // anything placed on the nominal surface ends up buried inside the body.
+  const lit = (c, e, i) => new THREE.MeshStandardMaterial({
+    color: c, emissive: e, emissiveIntensity: i, roughness: 0.35, metalness: 0.1,
+  });
+  const tailGeo = new THREE.BoxGeometry(0.40, 0.10, 0.10);
+  const headGeo = new THREE.BoxGeometry(0.34, 0.09, 0.10);
+  const lamps = [];
+  for (const sx of [-1, 1]) {
+    const tl = new THREE.Mesh(tailGeo, lit(0x35090a, 0xff2410, 1.6));
+    tl.position.set(sx * 0.63, 0.66, 2.13);
+    const hl = new THREE.Mesh(headGeo, lit(0x2a2a26, 0xfff0cf, 1.3));
+    hl.position.set(sx * 0.66, 0.56, -2.12);
+    lamps.push(tl, hl);
+  }
+  // full-width tail bar — the detail that makes it read as modern from behind
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(1.34, 0.035, 0.06), lit(0x35090a, 0xff2410, 1.1));
+  bar.position.set(0, 0.70, 2.14);
+
+  const shadow = new THREE.Mesh(new THREE.PlaneGeometry(3.0, 5.4),
+    new THREE.MeshBasicMaterial({
+      map: makeBlobTexture(0.62, 0), transparent: true, depthWrite: false, opacity: 0.85,
+    }));
+  shadow.rotation.x = -Math.PI / 2;
+  shadow.position.y = 0.035;
+
+  chassis.add(body, glass, bar, ...lamps);
+  car.add(shadow);   // stays flat on the ground rather than rolling with the body
+}
+const wheels = [], steerHolders = [];
+{
+  const tyreGeo = new THREE.CylinderGeometry(0.38, 0.38, 0.28, 18);
+  const rimGeo = new THREE.CylinderGeometry(0.255, 0.255, 0.285, 14);
+  const tyreMat = new THREE.MeshStandardMaterial({ color: 0x131315, roughness: 0.92, metalness: 0.0 });
+  const rimMat = new THREE.MeshStandardMaterial({ color: 0x8d9298, roughness: 0.34, metalness: 0.85 });
+  for (const [wx, wz, front] of [[-0.88, 1.45, 1], [0.88, 1.45, 1], [-0.88, -1.45, 0], [0.88, -1.45, 0]]) {
+    const w = new THREE.Group();
+    const tyre = new THREE.Mesh(tyreGeo, tyreMat);
+    const rim = new THREE.Mesh(rimGeo, rimMat);
+    tyre.rotation.z = rim.rotation.z = Math.PI / 2;
+    w.add(tyre, rim);
+    const holder = new THREE.Group();
+    holder.position.set(wx, 0.38, -wz);
+    holder.add(w);
+    chassis.add(holder);
+    wheels.push(w);
+    if (front) steerHolders.push(holder);
+  }
+}
+scene.add(car);
+
+// skid marks (pooled)
+const SKIDS = 300;
+const skidGeo = new THREE.PlaneGeometry(0.42, 0.9);
+// soft-edged rather than a hard rectangle — rubber does not have a border
+const skidMat = new THREE.MeshBasicMaterial({
+  map: makeBlobTexture(0.85, 0), color: 0x141416, transparent: true, opacity: 0.5, depthWrite: false,
+});
+const skidMesh = new THREE.InstancedMesh(skidGeo, skidMat, SKIDS);
+skidMesh.frustumCulled = false;
+skidMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+const hidden = new THREE.Matrix4().makeScale(0, 0, 0);
+for (let i = 0; i < SKIDS; i++) skidMesh.setMatrixAt(i, hidden);
+scene.add(skidMesh);
+let skidPtr = 0;
+const skidM = new THREE.Matrix4(), skidQ = new THREE.Quaternion(), skidE = new THREE.Euler(0, 0, 0, 'YXZ');
+const skidS = new THREE.Vector3(1, 1, 1), skidP = new THREE.Vector3();
+function addSkid(x, y, z, yaw) {
+  skidE.set(-Math.PI / 2, 0, 0);
+  skidQ.setFromEuler(skidE);
+  const yq = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+  skidQ.premultiply(yq);
+  skidP.set(x, y + 0.04, z);
+  skidM.compose(skidP, skidQ, skidS);
+  skidMesh.setMatrixAt(skidPtr, skidM);
+  skidPtr = (skidPtr + 1) % SKIDS;
+  skidMesh.instanceMatrix.needsUpdate = true;
+}
+
+// ================= input =================
+const keys = {};
+let camMode = 0, muted = false, manual = false;
+
+function setManual(on) {
+  manual = on;
+  if (manual) {
+    // rolling into manual keeps the current gear; from a standstill start in
+    // neutral, otherwise the engaged clutch stalls you the instant you switch
+    if (Math.abs(vLong) < 1.5) gear = 0;
+  } else {
+    clutchTarget = 1;
+    // switching to auto is not a repair — a wrecked engine stays wrecked
+    if (!blown) { engineOn = true; omegaE = Math.max(omegaE, IDLE * RPM2RAD); }
+    if (gear <= 0) gear = 1;
+  }
+}
+
+addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  keys[k] = true;
+  if (e.shiftKey) keys['shift'] = true;
+
+  if (k === 'c') camMode = (camMode + 1) % 3;
+  if (k === 'm') muted = !muted;
+  if (k === 't') setManual(!manual);
+  if (k === 'p') respawn();
+
+  // Read e.code, not e.key: with the clutch (Shift) held, "1" arrives as "!"
+  let want = null;
+  const digit = /^(?:Digit|Numpad)([0-6])$/.exec(e.code);
+  if (digit) want = +digit[1];
+  else if (e.code === 'KeyR') want = -1;
+  if (want !== null) {
+    if (!manual) setManual(true);      // asking for a gear means you want manual
+    shiftTo(want);
+  }
+  // sequential shifting, so you never need Shift and a number at once
+  if (e.code === 'KeyE' || e.code === 'BracketRight') { if (!manual) setManual(true); shiftTo(Math.min(6, Math.max(0, gear) + 1)); }
+  if (e.code === 'KeyQ' || e.code === 'BracketLeft') { if (!manual) setManual(true); shiftTo(Math.max(1, gear - 1)); }
+
+  if (k.startsWith('arrow') || k === ' ') e.preventDefault();
+  initAudio();
+});
+addEventListener('keyup', e => {
+  keys[e.key.toLowerCase()] = false;
+  if (!e.shiftKey) keys['shift'] = false;
+});
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+
+// ================= drivetrain =================
+// The engine is a real rotating inertia, not a number lerped toward road speed.
+// Everything the gearbox does — stalling, clutch slip, rev-matching, blowing up
+// on a money shift — falls out of integrating it against the torque the clutch
+// feeds back from the wheels. Nothing below is a special case.
+const RATIOS = [3.85, 2.40, 1.75, 1.36, 1.11, 0.93];   // gears 1..6
+const REVERSE = -3.40, FINAL = 4.05, WHEEL_R = 0.38;
+const RPM2RAD = Math.PI / 30;
+const IDLE = 850, REDLINE = 7000, LIMITER = 6850, BURST = 8400;
+const REV_CRIT = 7700;      // the lamp goes red here; you have maybe half a second
+const REV_MAX = 2.2;        // m/s — reverse will not select above walking pace
+const PEAK_TQ = 400, MASS = 1350;
+const IE = 0.42;            // engine + flywheel inertia, kg m^2
+const CLUTCH_CAP = 950;     // Nm the clutch can hold when fully engaged
+const CLUTCH_STIFF = 55;    // Nm per rad/s of slip
+const EFF = 0.92;
+const GRIP_PEAK = 1.45;     // static grip over sliding grip, on the shock of a dumped clutch
+
+let gear = 1;                    // -1 reverse, 0 neutral, 1..6
+let omegaE = IDLE * RPM2RAD;     // engine speed, rad/s — the actual state
+let rpm = IDLE;
+let clutch = 1;                  // engagement: 1 = pedal up (locked), 0 = pedal in
+let clutchTarget = 1;
+let engineOn = true, blown = false;   // blown is terminal — only respawn() clears it
+let seize = 0;                   // seconds the wrecked engine holds the driven axle
+let shiftFlash = 0, grind = 0, starter = 0, shiftCut = 0, noRev = 0;
+
+function ratio(g) { return g === 0 ? 0 : g < 0 ? REVERSE : RATIOS[g - 1]; }
+
+// In manual the clutch pedal must be down for the dogs to mesh. Pulling OUT into
+// neutral is always allowed — that works without a clutch on a real car too.
+// Gate on the raw pedal rather than the smoothed engagement, so a clutch and a
+// gear pressed on the same frame still counts as a proper shift.
+function shiftTo(g) {
+  if (g === gear) return;
+  // Reverse has no synchro. Above walking pace the dogs simply crash and you get
+  // nothing — which beats letting the clutch drag the crank backwards to zero.
+  if (g < 0 && vLong > REV_MAX) {
+    grind = 0.5; noRev = 0.5;
+    if (gear !== 0) { gear = 0; shiftFlash = 0.2; }
+    return;
+  }
+  if (manual && !keys['shift'] && g !== 0) {
+    grind = 0.5;                 // gears refuse to mesh; you end up with nothing
+    if (gear !== 0) { gear = 0; shiftFlash = 0.2; }
+    return;
+  }
+  gear = g;
+  shiftFlash = 0.35;
+}
+
+function engineTorque(r, throttle) {
+  if (!engineOn) return 0;
+  if (r > LIMITER) throttle = 0;                              // limiter cuts fuel
+  let t = PEAK_TQ * clamp(1 - Math.pow((r - 4100) / 3700, 2), 0.30, 1) * throttle;
+  // Idle governor: cancel friction exactly, plus a proportional pull toward
+  // IDLE, so the engine settles precisely at idle instead of sagging under its
+  // own drag. It is far too weak to save you from a load — that is the point.
+  if (r < 1600) t += clamp(engineDrag(r) + (IDLE - r) * 0.14, 0, 120);
+  return t;
+}
+// Closed-throttle pumping and friction. This is what you feel as engine braking,
+// multiplied up by whatever gear you are in.
+const engineDrag = r => 11 + Math.max(0, r) * 0.010;
+
+// ================= vehicle state =================
+const pos = new THREE.Vector3(0, 0, 0);
+let yaw = 0;              // world heading of the car (0 = -Z, matching road at s=0)
+let vLong = 0, vLat = 0;  // body-frame velocity
+let yawRate = 0;
+let vy = 0, airborne = false;
+let sEst = 0, dEst = 0, groundY = 0;
+let steerAngle = 0, wheelSpin = 0, slipAmount = 0;
+let bodyPitch = 0, bodyRoll = 0, suspPitch = 0, suspRoll = 0;
+let camShake = 0, skidTimer = 0;
+
+function respawn() {
+  const p = getPose(sEst);
+  pos.set(p.x, p.y, p.z);
+  yaw = p.heading; vLong = Math.min(vLong, 12); vLat = 0; yawRate = 0; vy = 0;
+  engineOn = true; blown = false; seize = 0;      // the only way to undo a money shift
+  omegaE = Math.max(omegaE, IDLE * RPM2RAD);
+  if (gear === 0 && !manual) gear = 1;
+}
+{ const p = getPose(0); pos.set(p.x, p.y, p.z); yaw = p.heading; }
+
+// ================= audio =================
+let audioCtx = null, engGain = null, engOscs = [], engFilter = null;
+let windGain = null, skidGain = null, grindGain = null;
+function initAudio() {
+  if (audioCtx) return;
+  try {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    engFilter = audioCtx.createBiquadFilter();
+    engFilter.type = 'lowpass'; engFilter.frequency.value = 900;
+    engGain = audioCtx.createGain(); engGain.gain.value = 0;
+    engGain.connect(engFilter).connect(audioCtx.destination);
+    for (const det of [0, 3.5, 7]) {
+      const o = audioCtx.createOscillator();
+      o.type = 'sawtooth'; o.frequency.value = 40 + det;
+      o.connect(engGain); o.start();
+      engOscs.push(o);
+    }
+    // noise buffer drives both wind and tyre screech
+    const len = audioCtx.sampleRate * 2;
+    const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
+    const ch = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) ch[i] = Math.random() * 2 - 1;
+    const mk = (freq, type, gainVal) => {
+      const src = audioCtx.createBufferSource();
+      src.buffer = buf; src.loop = true;
+      const f = audioCtx.createBiquadFilter();
+      f.type = type; f.frequency.value = freq; f.Q.value = type === 'bandpass' ? 4 : 1;
+      const g = audioCtx.createGain(); g.gain.value = gainVal;
+      src.connect(f).connect(g).connect(audioCtx.destination);
+      src.start();
+      return g;
+    };
+    windGain = mk(500, 'lowpass', 0);
+    skidGain = mk(1900, 'bandpass', 0);
+    grindGain = mk(320, 'bandpass', 0);
+  } catch (_) { /* audio unavailable */ }
+}
+
+// ================= HUD =================
+const el = {
+  speed: document.getElementById('speed'), rpm: document.getElementById('rpm'),
+  gear: document.getElementById('gear'), tach: document.getElementById('tachfill'),
+  mode: document.getElementById('mode'), dist: document.getElementById('dist'),
+  clutch: document.getElementById('clutchlamp'), stall: document.getElementById('stall'),
+  lampRev: document.getElementById('lampRev'), lampEng: document.getElementById('lampEng'),
+};
+let lastMsg = '';
+setTimeout(() => { document.getElementById('help').style.opacity = 0.28; }, 14000);
+
+// ================= camera =================
+const camPos = new THREE.Vector3();
+const camLook = new THREE.Vector3();
+let camInit = false;
+
+// ================= loop =================
+const clock = new THREE.Clock();
+let odo = 0, autoShiftLock = 0;
+
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.04);
+
+  const gas = (keys['w'] || keys['arrowup']) ? 1 : 0;
+  const brakeIn = (keys['s'] || keys['arrowdown']) ? 1 : 0;
+  const steerIn = ((keys['d'] || keys['arrowright']) ? 1 : 0) - ((keys['a'] || keys['arrowleft']) ? 1 : 0);
+  const handbrake = keys[' '] ? 1 : 0;
+
+  // ---------- clutch pedal ----------
+  // Manual is the raw pedal. Auto slips like a torque converter at low speed and
+  // locks up as it gains ground, so it can never bog or stall.
+  clutchTarget = manual ? (keys['shift'] ? 0 : 1)
+                       : clamp(0.18 + smoothstep(0.4, 4.5, Math.abs(vLong)) * 0.9, 0, 1);
+  if (shiftCut > 0) clutchTarget = 0;
+  shiftCut = Math.max(0, shiftCut - dt);
+  // the pedal goes down far faster than it comes back up
+  clutch += (clutchTarget - clutch) * (1 - Math.exp(-dt * (clutchTarget < clutch ? 30 : 8)));
+
+  // ---------- starter ----------
+  // The starter turns the engine over whether or not there is anything left in
+  // there to catch. A wrecked engine cranks all day and never fires.
+  if (!engineOn && (manual ? keys['shift'] : true)) {
+    starter += dt;
+    if (!blown && starter > 0.35) { engineOn = true; omegaE = IDLE * RPM2RAD; starter = 0; }
+  } else starter = 0;
+
+  // ---------- automatic gearbox ----------
+  autoShiftLock -= dt;
+  if (!manual) {
+    if (brakeIn && vLong < 0.5 && gear >= 0) shiftTo(-1);
+    else if (gear === -1 && gas && vLong > -0.5) shiftTo(1);
+    else if (gear === 0) shiftTo(1);
+    else if (gear > 0 && autoShiftLock <= 0) {
+      if (rpm > 6250 && gear < 6) { shiftTo(gear + 1); autoShiftLock = 0.35; shiftCut = 0.12; }
+      else if (rpm < 2150 && gear > 1) { shiftTo(gear - 1); autoShiftLock = 0.35; shiftCut = 0.10; }
+    }
+  }
+
+  // ---------- surface ----------
+  const gp = probe(pos.x, pos.z, sEst);
+  sEst = gp.s; dEst = gp.d; groundY = gp.y;
+  const onRoad = Math.abs(dEst) < HALF + 0.4;
+  const grip = (onRoad ? 1.35 : 0.82) * (airborne ? 0 : 1);
+  const rollRes = onRoad ? 0.012 : 0.055;
+
+  // ---------- engine + clutch ----------
+  const gripAcc = grip * 9.81;
+  // only the driven axle carries traction, so first gear can light up the tyres
+  const tractionN = gripAcc * MASS * (handbrake ? 0.16 : 0.58);
+  const gr = ratio(gear) * FINAL;
+  // Most torque the driven tyres can hold, referred back to the engine side.
+  // Past this they let go — which is both why first gear spins up and why a
+  // brutal downshift can't pin the engine rigidly to road speed.
+  const tyreCap = gr !== 0 ? tractionN * WHEEL_R / (Math.abs(gr) * EFF) : 1e9;
+
+  // Substepped: the clutch is a stiff spring and would ring at frame rate.
+  let Tc = 0, slipped = 0, peak = 0;
+  const SUB = 4, hdt = dt / SUB;
+  for (let i = 0; i < SUB; i++) {
+    const r = omegaE / RPM2RAD;
+    const drive = engineTorque(r, gas) - engineDrag(r) * (engineOn ? 1 : 0.55);
+    let t = 0;
+    if (gr !== 0) {
+      const cap = CLUTCH_CAP * clutch;
+      const slip = omegaE - (vLong / WHEEL_R) * gr;     // engine-side slip speed
+      t = clamp(slip * CLUTCH_STIFF, -cap, cap);
+      // A dumped clutch arrives as a shock, not a steady load: the driveline
+      // winds up and the tyre has to absorb the whole spike before it can start
+      // sliding, and static grip beats sliding grip anyway. Gated on a big
+      // wheels-faster-than-engine mismatch, so it only ever fires on a money
+      // shift — a launch slips the other way and normal engine braking sits
+      // within a rad/s or two of locked.
+      const shockCap = tyreCap * (slip < -60 ? GRIP_PEAK : 1);
+      const held = clamp(t, -shockCap, shockCap);
+      slipped += Math.abs(t - held) / SUB;
+      t = held;
+    }
+    omegaE = Math.max(0, omegaE + (drive - t) / IE * hdt);
+    // A money shift lives and dies inside a single frame. Read after the loop,
+    // the spike has already come back down and the engine gets away with it.
+    if (omegaE > peak) peak = omegaE;
+    Tc += t / SUB;
+  }
+  rpm = omegaE / RPM2RAD;
+
+  if (engineOn) {
+    if (peak / RPM2RAD > BURST) {          // money shift: a rod leaves the block
+      engineOn = false; blown = true; camShake = 1.4; seize = 0.45;
+    }
+    else if (manual && rpm < 380) engineOn = false;                          // stalled
+    else if (!manual && rpm < IDLE) { omegaE = IDLE * RPM2RAD; rpm = IDLE; } // converter
+  } else if (!blown && rpm > 550 && gas) {
+    engineOn = true;                                                          // bump start
+  }
+
+  // ---------- longitudinal forces ----------
+  let force = Tc * gr * EFF / WHEEL_R;
+  wheelSpin = clamp(slipped / Math.max(tyreCap, 1), 0, 1.2);
+  force = clamp(force, -tractionN, tractionN);
+
+  let accel = force / MASS;
+  accel -= Math.sign(vLong) * (rollRes * 9.81 + 0.00042 * vLong * vLong);
+  if (brakeIn) accel -= Math.sign(vLong) * Math.min(Math.abs(vLong) / dt, gripAcc * 0.95);
+  if (handbrake) accel -= Math.sign(vLong) * Math.min(Math.abs(vLong) / dt, 6);
+  // It let go and locked the driven axle for a moment. This is the part that puts
+  // you in the scenery — the bang is only the announcement.
+  if (seize > 0) accel -= Math.sign(vLong) * Math.min(Math.abs(vLong) / dt, gripAcc * 0.55);
+  seize = Math.max(0, seize - dt);
+  if (airborne) accel = 0;
+
+  // gravity along the slope keeps hills honest
+  const front = probe(pos.x + Math.sin(yaw) * 2, pos.z - Math.cos(yaw) * 2, sEst);
+  const rear = probe(pos.x - Math.sin(yaw) * 2, pos.z + Math.cos(yaw) * 2, sEst);
+  const slope = (front.y - rear.y) / 4;
+  if (!airborne) accel -= slope * 9.81 * 0.85;
+
+  vLong += accel * dt;
+  if (!gas && !brakeIn && Math.abs(vLong) < 0.25 && Math.abs(slope) < 0.02) vLong = 0;
+
+  // ---------- steering & lateral grip ----------
+  const speedAbs = Math.abs(vLong);
+  const maxSteer = (0.60 - 0.42 * smoothstep(4, 46, speedAbs)) * (1 + 0.25 * handbrake);
+  const steerRate = 5.5 - 2.0 * smoothstep(0, 40, speedAbs);
+  steerAngle += (steerIn * maxSteer - steerAngle) * (1 - Math.exp(-dt * steerRate));
+
+  const WB = 2.9;
+  // cornering is capped by the grip actually available — the car stays planted
+  // until the handbrake or wheelspin takes that grip away
+  const latAvail = gripAcc * (handbrake ? 0.38 : 1) * (1 - 0.45 * Math.min(wheelSpin, 1));
+  const yawGripMax = latAvail / Math.max(5, speedAbs);
+  let yawTarget = clamp((vLong / WB) * Math.tan(steerAngle), -yawGripMax, yawGripMax);
+  if (airborne) yawTarget = yawRate;
+  yawRate += (yawTarget - yawRate) * (1 - Math.exp(-dt * (airborne ? 0.5 : 7)));
+  // a sliding car weathervanes its nose toward the direction of travel
+  const slipAngle = Math.atan2(vLat, Math.max(2, speedAbs));
+  yawRate += slipAngle * speedAbs * 0.016 * (handbrake ? 2.0 : 1) * dt * (airborne ? 0 : 1);
+  yawRate = clamp(yawRate, -2.6, 2.6);
+  yaw += yawRate * dt;
+
+  // lateral velocity: cornering pushes it out, tyre grip pulls it back
+  vLat += -yawRate * vLong * dt;
+  const kill = clamp(-vLat / Math.max(dt, 1e-3), -latAvail, latAvail);
+  vLat += kill * dt;
+  vLat *= Math.exp(-dt * 0.6);
+  slipAmount = clamp((Math.abs(vLat) - 1.2) / 5, 0, 1);
+
+  // ---------- integrate world position ----------
+  const fx = Math.sin(yaw), fz = -Math.cos(yaw);
+  const rx = Math.cos(yaw), rz = Math.sin(yaw);
+  pos.x += (fx * vLong + rx * vLat) * dt;
+  pos.z += (fz * vLong + rz * vLat) * dt;
+  odo += speedAbs * dt;
+
+  // ---------- vertical / airborne ----------
+  const gp2 = probe(pos.x, pos.z, sEst);
+  sEst = gp2.s; dEst = gp2.d; groundY = gp2.y;
+  if (airborne) {
+    vy -= 22 * dt;
+    pos.y += vy * dt;
+    if (pos.y <= groundY) { pos.y = groundY; vy = 0; airborne = false; vLong *= 0.94; }
+  } else {
+    const climb = (groundY - pos.y) / Math.max(dt, 1e-3);
+    if (climb < -14 && speedAbs > 9) { airborne = true; vy = climb * 0.25; }
+    else pos.y += (groundY - pos.y) * (1 - Math.exp(-dt * 18));
+  }
+
+  // ---------- boulder collisions ----------
+  const carChunk = Math.floor(sEst / SEG / CHUNK);
+  for (let ci = carChunk - 1; ci <= carChunk + 1; ci++) {
+    const g = chunks.get(ci);
+    if (!g) continue;
+    for (const t of g.userData.solids) {
+      const dx = pos.x - t.x, dz = pos.z - t.z;
+      const dd = dx * dx + dz * dz;
+      const rr = t.r + 1.1;
+      if (dd < rr * rr && dd > 1e-4) {
+        const dl = Math.sqrt(dd), nx = dx / dl, nz = dz / dl;
+        pos.x = t.x + nx * rr; pos.z = t.z + nz * rr;
+        const into = vLong * (fx * -nx + fz * -nz);
+        vLong *= 0.35; vLat *= 0.3;
+        yawRate += (into > 0 ? 1 : -1) * 0.6;
+        camShake = Math.min(1, camShake + 0.7);
+      }
+    }
+  }
+
+  // ---------- chunk streaming ----------
+  for (let ci = Math.max(0, carChunk - BEHIND); ci <= carChunk + AHEAD; ci++)
+    if (!chunks.has(ci)) buildChunk(ci);
+  for (const ci of [...chunks.keys()])
+    if (ci < carChunk - BEHIND || ci > carChunk + AHEAD) disposeChunk(ci);
+
+  // ---------- car transform ----------
+  car.position.copy(pos);
+  car.rotation.y = -yaw;
+  const left = probe(pos.x - rx * 1.0, pos.z - rz * 1.0, sEst);
+  const right = probe(pos.x + rx * 1.0, pos.z + rz * 1.0, sEst);
+  const terrPitch = Math.atan2(front.y - rear.y, 4);
+  const terrRoll = Math.atan2(right.y - left.y, 2);
+  bodyPitch += (terrPitch - bodyPitch) * (1 - Math.exp(-dt * 8));
+  bodyRoll += (terrRoll - bodyRoll) * (1 - Math.exp(-dt * 8));
+  car.rotation.x = airborne ? bodyPitch * 0.6 : bodyPitch;
+  car.rotation.z = bodyRoll;
+
+  // weight transfer
+  suspPitch += ((brakeIn ? 0.05 : 0) - accel * 0.006 - suspPitch) * (1 - Math.exp(-dt * 7));
+  suspRoll += (clamp(yawRate * speedAbs * 0.012, -0.14, 0.14) - suspRoll) * (1 - Math.exp(-dt * 7));
+  chassis.rotation.x = suspPitch;
+  chassis.rotation.z = suspRoll;
+
+  for (const h of steerHolders) h.rotation.y = -steerAngle * 0.85;
+  const wheelSpeed = (vLong / WHEEL_R) * (1 + wheelSpin * 2.5);
+  for (const w of wheels) w.rotation.x -= wheelSpeed * dt;
+
+  // ---------- skid marks ----------
+  const sliding = !airborne && (slipAmount > 0.12 || wheelSpin > 0.25 || seize > 0 || (handbrake && speedAbs > 4));
+  if (sliding) {
+    skidTimer -= dt;
+    if (skidTimer <= 0) {
+      skidTimer = 0.016;
+      for (const side of [-1, 1]) {
+        const sx = pos.x + rx * side * 0.88 - fx * 1.45;
+        const sz = pos.z + rz * side * 0.88 - fz * 1.45;
+        addSkid(sx, groundY, sz, -yaw - Math.atan2(vLat, Math.max(1, Math.abs(vLong))));
+      }
+    }
+  }
+
+  // ---------- camera ----------
+  camShake = Math.max(0, camShake - dt * 2.2);
+  if (camMode === 2) {                                   // hood
+    camPos.set(pos.x + fx * 0.5, pos.y + 1.32, pos.z + fz * 0.5);
+    camLook.set(pos.x + fx * 20, pos.y + 1.5, pos.z + fz * 20);
+    camera.position.copy(camPos);
+  } else {
+    const back = camMode === 0 ? 8.8 : 15;
+    const up = camMode === 0 ? 3.5 : 7;
+    // trail behind the direction of travel, GTA style
+    const travel = Math.atan2(fx * vLong + rx * vLat, fz * vLong + rz * vLat);
+    const blend = smoothstep(2, 14, speedAbs) * 0.55;
+    const camYawX = fx * (1 - blend) + Math.sin(travel) * blend;
+    const camYawZ = fz * (1 - blend) + Math.cos(travel) * blend;
+    const tx = pos.x - camYawX * back, tz = pos.z - camYawZ * back;
+    const tgt = new THREE.Vector3(tx, Math.max(groundY, probe(tx, tz, sEst).y) + up, tz);
+    if (!camInit) { camPos.copy(tgt); camInit = true; }
+    camPos.lerp(tgt, 1 - Math.exp(-dt * (4 + speedAbs * 0.06)));
+    camera.position.copy(camPos);
+    camLook.set(pos.x + fx * 6, pos.y + 1.3, pos.z + fz * 6);
+  }
+  if (camShake > 0.01) {
+    camera.position.x += (Math.random() - 0.5) * camShake * 0.5;
+    camera.position.y += (Math.random() - 0.5) * camShake * 0.5;
+  }
+  camera.lookAt(camLook);
+  camera.fov = 62 + speedAbs * 0.28 + wheelSpin * 3;
+  camera.updateProjectionMatrix();
+
+  // The dome is centred on the eye so it can never be driven out of, and the sun
+  // rides along because a directional light aims at its target's position — a
+  // fixed one at the origin would swing round as we drive away from it.
+  skyDome.position.copy(camera.position);
+  sun.target.position.copy(pos);
+  sun.position.copy(pos).addScaledVector(SUN_DIR, 900);
+
+  // ---------- audio ----------
+  if (audioCtx && engGain) {
+    const f = 22 + rpm * 0.0135;
+    engOscs.forEach((o, i) => o.frequency.setTargetAtTime(f * (1 + i * 0.005) * (i === 2 ? 2 : 1), audioCtx.currentTime, 0.02));
+    engFilter.frequency.value = 420 + rpm * 0.16 + gas * 400;
+    const load = 0.012 + gas * 0.028 + rpm / REDLINE * 0.02;
+    engGain.gain.setTargetAtTime(muted || !engineOn ? 0 : load, audioCtx.currentTime, 0.05);
+    if (windGain) windGain.gain.setTargetAtTime(muted ? 0 : Math.min(0.055, speedAbs * 0.0016), audioCtx.currentTime, 0.1);
+    if (skidGain) skidGain.gain.setTargetAtTime(muted ? 0 : (sliding ? 0.03 + slipAmount * 0.05 : 0), audioCtx.currentTime, 0.05);
+    if (grindGain) grindGain.gain.setTargetAtTime(muted || grind <= 0 ? 0 : 0.075, audioCtx.currentTime, 0.02);
+  }
+
+  // ---------- HUD ----------
+  shiftFlash = Math.max(0, shiftFlash - dt);
+  el.speed.textContent = Math.round(Math.abs(vLong) * 3.6);
+  el.rpm.textContent = Math.round(rpm / 50) * 50 + ' RPM';
+  el.dist.textContent = (odo / 1000).toFixed(1) + ' km';
+  el.gear.textContent = gear === -1 ? 'R' : gear === 0 ? 'N' : gear;
+  el.gear.className = (manual && rpm > 6400 && gear > 0) ? 'warn' : '';
+  el.gear.style.transform = shiftFlash > 0 ? `scale(${1 + shiftFlash * 0.5})` : 'scale(1)';
+  // the dial is scaled to BURST, so the red band above redline is real estate you
+  // can actually watch the needle climb into
+  el.tach.style.width = clamp(rpm / BURST * 100, 0, 100).toFixed(1) + '%';
+  el.tach.className = rpm > REDLINE ? 'red' : '';
+  el.mode.textContent = manual ? 'MANUAL' : 'AUTO';
+  el.mode.className = manual ? 'on' : '';
+  el.clutch.style.opacity = (manual && clutch < 0.85) ? 1 : 0;
+  el.lampRev.className = rpm > REV_CRIT ? 'crit' : rpm > REDLINE ? 'on' : '';
+  el.lampEng.className = blown ? 'on' : '';
+
+  grind = Math.max(0, grind - dt);
+  noRev = Math.max(0, noRev - dt);
+  let msg = '';
+  if (!engineOn) {
+    msg = blown
+      ? 'ENGINE DESTROYED<small>you dropped it into a gear it could not survive &mdash; it will crank all day and never fire again. press P for a fresh car</small>'
+      : 'STALLED<small>hold SHIFT, bring the revs up, then ease off the clutch</small>';
+  } else if (noRev > 0) {
+    msg = 'NO REVERSE<small>reverse has no synchro &mdash; you have to be almost stopped</small>';
+  } else if (grind > 0) {
+    msg = 'GRIND<small>hold SHIFT to declutch before selecting a gear</small>';
+  }
+  if (msg !== lastMsg) { el.stall.innerHTML = msg; lastMsg = msg; }
+  el.stall.style.display = msg ? 'block' : 'none';
+
+  renderer.render(scene, camera);
+});
+</script>
+</body>
+</html>
