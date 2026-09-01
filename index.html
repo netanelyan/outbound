@@ -150,7 +150,7 @@
     reverse: <b>R</b> to select it, then <b>S</b> to back up and <b>W</b> to stop<br>
     <b>T</b> back to auto &nbsp; <b>G</b> autopilot &nbsp; <b>P</b> fresh car &nbsp; <b>M</b> sound &nbsp; <b>Esc</b> these settings
   </div>
-  <div id="pickhint"><kbd>&uarr;</kbd><kbd>&darr;</kbd> row &nbsp;&middot;&nbsp; <kbd>&larr;</kbd><kbd>&rarr;</kbd> choose &nbsp;&middot;&nbsp; <kbd>Enter</kbd> apply and drive &nbsp;&middot;&nbsp; <kbd>Esc</kbd> back out</div>
+  <div id="pickhint"><kbd>&uarr;</kbd><kbd>&darr;</kbd> row &nbsp;&middot;&nbsp; <kbd>&larr;</kbd><kbd>&rarr;</kbd> choose &nbsp;&middot;&nbsp; <kbd>Enter</kbd> drive</div>
 </div>
 
 <script type="importmap">
@@ -258,6 +258,13 @@ function lanesAt(s) {
   lanes.r = a[1] + (b[1] - a[1]) * t;
   return lanes;
 }
+// Where the two carriageways are separated by a barrier rather than by paint.
+// Tied to width, because that is how it works in reality: a road wide enough to
+// have two lanes each way is a road somebody built a central reservation into.
+// On these stretches there is no oncoming traffic to worry about at all, which
+// changes what the driver — human or not — is allowed to do with the fast lane.
+const divided = s => { const L = lanesAt(s); return L.l + L.r > 3.9; };
+
 // signed: negative d is the oncoming carriageway
 const edgeAt = (s, d) => (d < 0 ? lanesAt(s).l : lanesAt(s).r) * LANE_W;
 
@@ -698,6 +705,7 @@ const buildingMat = new THREE.MeshLambertMaterial({
   emissiveIntensity: 0.9, vertexColors: true,
 });
 const kerbMat = new THREE.MeshLambertMaterial({ color: 0x8e8b84, side: THREE.DoubleSide });
+const barrierMat = new THREE.MeshLambertMaterial({ color: 0x9a968e, side: THREE.DoubleSide });
 const poleMat = new THREE.MeshLambertMaterial({ color: 0x33353a });
 const lampMat = new THREE.MeshLambertMaterial({ color: 0xffe0b0, emissive: 0xffc98a, emissiveIntensity: 1.6 });
 const poleGeo = new THREE.CylinderGeometry(0.07, 0.10, 7.4, 6);
@@ -881,10 +889,14 @@ function buildChunk(ci) {
     // edge lines, which follow the tarmac out and back as lanes come and go
     emit(0, CHUNK, k => -eL(k) + 0.30, 0.09, MK.solid, MK.solid2);
     emit(0, CHUNK, k => eR(k) - 0.30, 0.09, MK.solid, MK.solid2);
-    // the divider between the two directions, solid where you cannot see past
-    runs(k => centreDashed(sAt(k)), () => 0, 0.09, MK.dash, MK.dash2);
-    runs(k => !centreDashed(sAt(k)), () => -0.09, 0.075, MK.solid, MK.solid2);
-    runs(k => !centreDashed(sAt(k)), () => 0.09, 0.075, MK.solid, MK.solid2);
+    // The divider between the two directions: solid where you cannot see past,
+    // and on a divided road it becomes an edge line either side of the barrier
+    // instead, because that is what the paint is for once there is concrete.
+    runs(k => !divided(sAt(k)) && centreDashed(sAt(k)), () => 0, 0.09, MK.dash, MK.dash2);
+    runs(k => !divided(sAt(k)) && !centreDashed(sAt(k)), () => -0.09, 0.075, MK.solid, MK.solid2);
+    runs(k => !divided(sAt(k)) && !centreDashed(sAt(k)), () => 0.09, 0.075, MK.solid, MK.solid2);
+    runs(k => divided(sAt(k)), () => 0.62, 0.08, MK.solid, MK.solid2);
+    runs(k => divided(sAt(k)), () => -0.62, 0.08, MK.solid, MK.solid2);
     // lane dividers within each direction are always broken
     for (let i = 1; i < 4; i++) {
       runs(k => nL(k) > i + 0.02, () => -i * LANE_W, 0.08, MK.dash, MK.dash2);
@@ -901,6 +913,43 @@ function buildChunk(ci) {
     geo.setIndex(mi);
     geo.computeVertexNormals();
     group.add(new THREE.Mesh(geo, markMat));
+  }
+
+  { // The central barrier, wherever the carriageways are divided. A three-plane
+    // profile — near face, top, far face — which is all a New Jersey barrier
+    // needs to be from a car doing 200.
+    const segs = [];
+    let k0 = 0;
+    while (k0 <= CHUNK) {
+      if (!divided(sAt(k0))) { k0++; continue; }
+      let k1 = k0;
+      while (k1 + 1 <= CHUNK && divided(sAt(k1 + 1))) k1++;
+      if (k1 > k0) {
+        const rows = k1 - k0 + 1;
+        const pos = new Float32Array(rows * 12), idx = [];
+        for (let j = 0; j < rows; j++) {
+          const p = pts[i0 + k0 + j];
+          const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
+          const y = p.y + 0.07, w = 0.40, h = 0.82;
+          pos.set([
+            p.x - rx * w, y,     p.z - rz * w,
+            p.x - rx * w * 0.55, y + h, p.z - rz * w * 0.55,
+            p.x + rx * w * 0.55, y + h, p.z + rz * w * 0.55,
+            p.x + rx * w, y,     p.z + rz * w,
+          ], j * 12);
+          if (j < rows - 1) {
+            const a = j * 4;
+            for (let e = 0; e < 3; e++) idx.push(a + e, a + e + 1, a + e + 4, a + e + 1, a + e + 5, a + e + 4);
+          }
+        }
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        geo.setIndex(idx); geo.computeVertexNormals();
+        segs.push(geo);
+      }
+      k0 = k1 + 1;
+    }
+    if (segs.length) group.add(new THREE.Mesh(mergeGeos(segs), barrierMat));
   }
 
   { // terrain, one ribbon per side, measured out from the edge of the tarmac
@@ -1563,6 +1612,60 @@ const CARS = [{
     box(1.40, 0.05, 0.20, 0, 1.06,  2.16, paint);            // ducktail lip
     box(1.34, 0.14, 0.34, 0, 0.17,  2.06, dark);             // rear diffuser
   },
+}, {
+  // A Tesla Model 3: 4.69 m long, 1.85 wide, 1.44 tall over a 2.88 m wheelbase.
+  // The shape is the giveaway and it is nothing like the other two — one
+  // continuous arc from the nose over the roof to the tail, no grille at all
+  // because there is no radiator to feed, and a cabin pushed forward over a
+  // floor full of battery.
+  name: 'TESLA MODEL 3', blurb: '2023 · ELECTRIC',
+  stats: '1850 kg · one gear, no clutch<br>everything it has, from a standstill',
+  wb: 2.88, track: 0.79, axle: 1.44, mass: 1850, torque: 2250, shadow: [2.8, 5.3],
+  ev: true, paint: 0xe8eaec, gloss: 0.28, flake: 0.05,
+  width: 1.67, glassWidth: 1.91,
+  body: [
+    [ 2.28, 0.42], [ 2.34, 0.62], [ 2.20, 0.78],   // blunt low nose, no grille
+    [ 1.72, 0.88], [ 1.05, 0.98],                  // short bonnet to the cowl
+    [ 0.30, 1.36], [-0.46, 1.44],                  // one arc over the cabin
+    [-1.30, 1.30], [-1.94, 1.02],                  // and down the fastback
+    [-2.20, 0.90], [-2.28, 0.60],                  // short deck, high tail
+    [-2.20, 0.34], [ 0.00, 0.28],                  // battery floor
+  ],
+  glass: [
+    [[ 1.099, 1.079], [ 0.349, 1.459], [ 0.269, 1.389], [ 1.019, 1.009]],
+    // the glasshouse is one long piece, which is what the arc looks like
+    [[ 0.320, 1.380], [-0.480, 1.440], [-1.320, 1.290], [-1.500, 1.080], [ 0.420, 1.020]],
+    [[-1.360, 1.376], [-2.000, 1.106], [-1.920, 1.026], [-1.280, 1.286]],
+  ],
+  // Slab-sided by comparison with the Ferrari, and the roof is barely narrower
+  // than the hips — a family car, however quick it is.
+  section: (y, z) => {
+    const waist = 0.74 + 0.26 * smoothstep(0.32, 0.78, y)
+                       - 0.22 * smoothstep(1.06, 1.44, y);
+    return waist * (1 - 0.20 * smoothstep(1.60, 2.34, -z))
+                 * (1 - 0.14 * smoothstep(1.70, 2.28, z));
+  },
+  tyres: [{ r: 0.345, w: 0.26, x: 0.790, z: -1.440, rim: 0.74, front: 1 },
+          { r: 0.350, w: 0.29, x: 0.785, z:  1.440, rim: 0.74, front: 0 }],
+  face: () => makeWheelTexture(5, '#8d939a', '#a6acb3', '#3a3d42', 13),
+  trim: ({ box, disc, dark, chrome, redLamp, whiteLamp }) => {
+    for (const sx of [-1, 1]) {
+      box(0.42, 0.10, 0.07, sx * 0.52, 0.80, -2.31, whiteLamp);   // slim lamps
+      box(0.46, 0.15, 0.05, sx * 0.52, 0.80, -2.27, dark);
+      box(0.34, 0.14, 0.10, sx * 0.54, 0.50, -2.30, dark);        // lower intake
+      box(0.07, 0.10, 0.16, sx * 0.94, 0.92, -1.06, dark);        // repeater
+      box(0.12, 0.04, 0.05, sx * 0.94, 1.06, -0.58, dark);        // mirror stalk
+      box(0.09, 0.11, 0.18, sx * 1.02, 1.09, -0.60, dark);
+      box(0.09, 0.12, 2.00, sx * 0.760, 0.40, 0.10, dark);        // sill
+      box(0.40, 0.11, 0.06, sx * 0.50, 0.88,  2.31, redLamp);
+    }
+    // one continuous tail light bar, which is the back of the car
+    box(1.06, 0.07, 0.05, 0, 0.88, 2.32, redLamp);
+    box(1.44, 0.20, 0.04, 0, 0.86, 2.29, dark);
+    box(0.74, 0.10, 0.08, 0, 0.52, -2.30, dark);                  // centre intake
+    box(1.24, 0.06, 0.36, 0, 0.24, -2.06, dark);                  // front valance
+    box(1.30, 0.14, 0.30, 0, 0.22,  1.96, dark);                  // rear valance
+  },
 }];
 
 // Both cars are built up front and one of them is simply hidden. They are ~15k
@@ -1590,7 +1693,7 @@ scene.add(car);
 // the same g — it only changes how hard the engine has to push, which is exactly
 // the difference between six hundred kilos of Ferrari and of BMW.
 let carIndex = 0, picking = true;
-let CAR_WB = 2.62, CAR_TRACK = 0.80, CAR_AXLE = 1.31;
+let CAR_WB = 2.62, CAR_TRACK = 0.80, CAR_AXLE = 1.31, IS_EV = false;
 let MASS = 1100, PEAK_TQ = 430;
 
 const pickEl = document.getElementById('pick');
@@ -1599,7 +1702,8 @@ function selectCar(i) {
   const s = CARS[i];
   carGroups.forEach((g, k) => { g.body.visible = g.rolling.visible = k === i; });
   CAR_WB = s.wb; CAR_TRACK = s.track; CAR_AXLE = s.axle;
-  MASS = s.mass; PEAK_TQ = s.torque;
+  MASS = s.mass; PEAK_TQ = s.torque; IS_EV = !!s.ev;
+  if (IS_EV) { manual = false; if (gear > 1) gear = 1; engineOn = true; blown = false; }
   shadow.scale.set(s.shadow[0] / 2.9, s.shadow[1] / 5.5, 1);
 }
 function openPicker() {
@@ -1609,14 +1713,10 @@ function openPicker() {
   pickEl.style.display = 'flex';
   for (const k in keys) keys[k] = false;   // no key survives the overlay opening
 }
-// Apply only what actually changed. applyMode in particular rebuilds the world,
-// so it must not run just because the window was opened and shut again.
-function closePicker(apply) {
-  if (apply) {
-    if (pend.car !== carIndex) selectCar(pend.car);
-    if (pend.mode !== modeIndex) applyMode(pend.mode);
-    if (pend.cond !== condIndex) applyConditions(pend.cond);
-  }
+// Everything is already applied by the time you get here; this only puts the
+// overlay away. applyPending still checks what actually changed, because
+// applyMode rebuilds every chunk and must not run for a row you merely passed.
+function closePicker() {
   picking = false;
   pickEl.style.display = 'none';
   initAudio();                              // this counts as the user gesture
@@ -1699,7 +1799,7 @@ let pickRow = 0;
       const b = document.createElement('button');
       b.className = 'pcard';
       b.innerHTML = '<b>' + item.name + '</b><i>' + item.blurb + '</i><em>' + item.stats + '</em>';
-      b.addEventListener('click', () => { pickRow = r; pend[row.key] = i; paintPicker(); });
+      b.addEventListener('click', () => { pickRow = r; pend[row.key] = i; applyPending(); paintPicker(); });
       cards.appendChild(b);
     });
     el.appendChild(lab); el.appendChild(cards);
@@ -1715,10 +1815,17 @@ function paintPicker() {
       row.cards.children[i].className = i === sel ? 'pcard on' : 'pcard';
   });
 }
+// Applied the moment you land on it, so the scene behind the overlay IS the
+// preview — you choose by looking at the thing rather than at a description.
+function applyPending() {
+  if (pend.car !== carIndex) selectCar(pend.car);
+  if (pend.mode !== modeIndex) applyMode(pend.mode);
+  if (pend.cond !== condIndex) applyConditions(pend.cond);
+}
 function pickKey(code) {
   const row = PICK[pickRow], n = row.list.length;
-  if (code === 'ArrowLeft') pend[row.key] = (pend[row.key] + n - 1) % n;
-  else if (code === 'ArrowRight') pend[row.key] = (pend[row.key] + 1) % n;
+  if (code === 'ArrowLeft') { pend[row.key] = (pend[row.key] + n - 1) % n; applyPending(); }
+  else if (code === 'ArrowRight') { pend[row.key] = (pend[row.key] + 1) % n; applyPending(); }
   else if (code === 'ArrowUp') pickRow = (pickRow + PICK.length - 1) % PICK.length;
   else if (code === 'ArrowDown') pickRow = (pickRow + 1) % PICK.length;
   else return false;
@@ -1874,6 +1981,46 @@ function trafficAI(t, dt) {
       t.lane++; t.cool = 6;                         // and move back over when done
     }
   }
+  // ---- not hitting things ----
+  // Separate from following, and deliberately indifferent to lanes and to which
+  // way anybody is going. Following logic only ever looks down its own lane in
+  // its own direction, so it will drive straight into a car coming the wrong way
+  // up its side of the road — and until now oncoming traffic considered nothing
+  // at all, not even the player. Anything within a car's width of our line,
+  // ahead of us in the direction we are actually travelling, and closing, gets a
+  // time to contact; short enough and it gets everything the brakes have and a
+  // move out of the way if there is anywhere to go.
+  const myLat = t.dir * (t.laneF + 0.5) * LANE_W;
+  let ttc = 1e9;
+  // Two thresholds, because the two cases are not alike. Something ahead in your
+  // own direction is a closing speed of a few m/s and two seconds is plenty;
+  // something coming the other way closes at the sum of both speeds, so the same
+  // two seconds is sixty metres and far too late to do anything with.
+  let headOn = 1e9;
+  const consider = (oLat, oS, closing, opposed) => {
+    if (Math.abs(oLat - myLat) > 2.5) return;
+    const rel = (oS - t.s) * t.dir;
+    if (rel <= 0 || closing <= 0.5) return;
+    const time = (rel - 7) / closing;
+    if (opposed) headOn = Math.min(headOn, time); else ttc = Math.min(ttc, time);
+  };
+  consider(dEst, sEst, t.dir > 0 ? t.speed - vLong : t.speed + vLong, t.dir < 0 && vLong > 1);
+  for (const o of traffic) {
+    if (o === t) continue;
+    consider(o.dir * (o.laneF + 0.5) * LANE_W, o.s,
+             o.dir === t.dir ? t.speed - o.speed : t.speed + o.speed, o.dir !== t.dir);
+  }
+  if (ttc < 2.4 || headOn < 5.5) {
+    t.speed = Math.max(0, t.speed - 11 * dt);
+    if (!t.cool && avail > 1) {
+      // outward first: away from the divider is the safer place to be wrong
+      for (const to of [t.lane + 1, t.lane - 1]) {
+        if (to < 0 || to > avail - 1) continue;
+        if (laneClear(t, to)) { t.lane = to; t.cool = 2.5; break; }
+      }
+    }
+  }
+
   // A lane change takes about a second and a half, and the nose points where the
   // car is actually going while it happens.
   const step = clamp(t.lane - t.laneF, -0.7 * dt, 0.7 * dt);
@@ -2009,6 +2156,7 @@ const keys = {};
 let camMode = 0, muted = false, manual = false;
 
 function setManual(on) {
+  if (IS_EV) return;        // there is nothing to change
   manual = on;
   if (manual) {
     // rolling into manual keeps the current gear; from a standstill start in
@@ -2026,8 +2174,7 @@ addEventListener('keydown', e => {
   // While the picker is up nothing else gets a look at the keyboard, or holding
   // an arrow to browse cars would also be holding a lock of steering on.
   if (picking) {
-    if (e.code === 'Enter' || e.code === 'Space') closePicker(true);
-    else if (e.code === 'Escape') closePicker(false);      // back out, change nothing
+    if (e.code === 'Enter' || e.code === 'Space' || e.code === 'Escape') closePicker();
     else if (!pickKey(e.code)) return;
     e.preventDefault();
     return;
@@ -2101,7 +2248,15 @@ let engineOn = true, blown = false;   // blown is terminal — only respawn() cl
 let seize = 0;                   // seconds the wrecked engine holds the driven axle
 let grind = 0, starter = 0, shiftCut = 0, noRev = 0;
 
-function ratio(g) { return g === 0 ? 0 : g < 0 ? REVERSE : RATIOS[g - 1]; }
+// An electric car has one reduction gear and that is the whole gearbox. Chosen
+// so the motor is turning about 7400 rpm at 250 km/h — under BURST, so the
+// over-rev that destroys the V8 simply cannot happen — and so the limiter,
+// which is a real thing on an EV too, arrives at a sensible top speed.
+const EV_RATIO = 1.05, EV_BASE = 2600;
+function ratio(g) {
+  if (IS_EV) return g === 0 ? 0 : g < 0 ? -EV_RATIO : EV_RATIO;
+  return g === 0 ? 0 : g < 0 ? REVERSE : RATIOS[g - 1];
+}
 
 // The shift flash used to be a transform written from the render loop for a
 // third of a second after every change. Scaling 84px of shadowed text by a
@@ -2120,6 +2275,7 @@ const gearFlash = () => el.gear.animate(
 // gear pressed on the same frame still counts as a proper shift.
 function shiftTo(g) {
   if (g === gear) return;
+  if (IS_EV) { gear = clamp(g, -1, 1); gearFlash(); return; }
   // Reverse has no synchro. Above walking pace the dogs simply crash and you get
   // nothing — which beats letting the clutch drag the crank backwards to zero.
   if (g < 0 && vLong > REV_MAX) {
@@ -2139,6 +2295,10 @@ function shiftTo(g) {
 function engineTorque(r, throttle) {
   if (!engineOn) return 0;
   if (r > LIMITER) throttle = 0;                              // limiter cuts fuel
+  // A motor gives everything it has from a standstill and then holds constant
+  // POWER, which is the whole character of the thing: no band to stay in, no
+  // gear to be in, just less of it the faster you are already going.
+  if (IS_EV) return PEAK_TQ * throttle * (r < EV_BASE ? 1 : EV_BASE / Math.max(r, 1));
   let t = PEAK_TQ * clamp(1 - Math.pow((r - 4100) / 3700, 2), 0.30, 1) * throttle;
   // Idle governor: cancel friction exactly, plus a proportional pull toward
   // IDLE, so the engine settles precisely at idle instead of sagging under its
@@ -2324,7 +2484,7 @@ let camInit = false, fovNow = FOV;
 // still stop. The last one is what "never crashes" actually means — almost every
 // crash is a speed chosen a hundred metres before the thing you hit.
 let autoDrive = false, autoLane = 0, autoHold = 0, autoPass = 0;
-const PASS_ONCOMING = false;   // let the autopilot use the far side of the line
+const PASS_ONCOMING = true;    // let the autopilot use the far side of the line
 const autoOut = { gas: 0, brake: 0, steer: 0 };
 
 // The nearest thing ahead within a car's width of a given line across the road,
@@ -2374,6 +2534,7 @@ function autopilot(dt) {
   }
   const v = Math.max(0, vLong);
   const nLanes = Math.max(1, Math.floor(lanesAt(sEst).r + 0.02));
+  const split = divided(sEst);   // nothing coming the other way behind concrete
   autoLane = clamp(autoLane, 0, nLanes - 1);
 
   // How far away the nearest thing coming the other way is. Nothing else on this
@@ -2407,11 +2568,11 @@ function autopilot(dt) {
   // so it is already the right answer to "may I use the other side here".
   autoPass = Math.max(0, autoPass - dt);
   let passing = autoPass > 0;
-  // Measured, per process, over six seeds and 70 km: with this on it averaged
-  // 92 km/h and 69 collisions, with it off 87 km/h and 16. Five km/h is not
-  // worth four times the crashes, so it is off — but the rule it uses is the
-  // right one and it is one flag away if you would rather have the speed.
-  if (PASS_ONCOMING && nLanes === 1) {
+  // Only on an undivided single carriageway — behind a barrier there is a whole
+  // lane to overtake in and no reason to cross anything. It costs collisions
+  // and it is worth them: a driver that sits behind a lorry at 120 on an empty
+  // straight road is not a good driver, it is a cautious one.
+  if (PASS_ONCOMING && nLanes === 1 && !split) {
     const a0 = aheadIn(LANE_W * 0.5, false);
     if (passing) {
       // abandon it instantly if something appears — better a hard brake in our
@@ -2445,7 +2606,7 @@ function autopilot(dt) {
         score -= Math.abs(l - autoLane) * 1.2;   // changing lane is not free
         // the inside lane is up against the oncoming carriageway, so it costs
         // something to sit in — but only while anything is actually coming
-        score -= l === 0 ? (oncoming < 150 ? 500 : 2.2) : 0;
+        score -= l === 0 && !split ? (oncoming < 150 ? 500 : 2.2) : 0;
         if (score > bestScore) { bestScore = score; best = l; }
       }
       if (best !== autoLane) { autoLane = best; autoHold = 1.2; }
@@ -2462,7 +2623,7 @@ function autopilot(dt) {
   // a metre either way and the margin has to already be there when it wanders.
   // 45 cm still leaves it inside its own lane rather than out near the verge,
   // which the old 90 cm of accumulated bias and tracking error did not.
-  const margin = (!passing && autoLane === 0) ? 0.45 : 0;
+  const margin = (!passing && autoLane === 0 && !split) ? 0.45 : 0;
   const lat = passing ? -LANE_W * 0.5 : (autoLane + 0.5) * LANE_W + margin;
   const look = clamp(9 + v * 0.62, 11, 46);
   const p = getPose(sEst + look);
@@ -2580,7 +2741,7 @@ renderer.setAnimationLoop(() => {
   // ---------- clutch pedal ----------
   // Manual is the raw pedal. Auto slips like a torque converter at low speed and
   // locks up as it gains ground, so it can never bog or stall.
-  clutchTarget = manual ? (keys['shift'] ? 0 : 1)
+  clutchTarget = IS_EV ? 1 : manual ? (keys['shift'] ? 0 : 1)
                        : clamp(0.18 + smoothstep(0.4, 4.5, Math.abs(vLong)) * 0.9, 0, 1);
   if (shiftCut > 0) clutchTarget = 0;
   shiftCut = Math.max(0, shiftCut - dt);
@@ -2608,9 +2769,30 @@ renderer.setAnimationLoop(() => {
     if (backKey && vLong < 0.5 && gear >= 0) shiftTo(-1);
     else if (gear === -1 && fwdKey && vLong > -0.5) shiftTo(1);
     else if (gear === 0) shiftTo(1);
-    else if (gear > 0 && autoShiftLock <= 0) {
-      if (rpm > 6250 && gear < 6) { shiftTo(gear + 1); autoShiftLock = 0.35; shiftCut = 0.07; }
-      else if (rpm < 2150 && gear > 1) { shiftTo(gear - 1); autoShiftLock = 0.35; shiftCut = 0.06; }
+    else if (gear > 0 && autoShiftLock <= 0 && !IS_EV) {
+      // Where the revs would land if we dropped one. Everything below is decided
+      // on that rather than on the current revs, which is the whole of what was
+      // missing: a tall gear at low revs cannot MAKE the revs that the upshift
+      // rule waits for, so the box would sit there and the car felt like it
+      // never changed down at all.
+      // Decided on ROAD SPEED, not on engine revs. Every shift cuts the clutch for
+      // a moment, and a declutched engine falls toward idle — so a box reading
+      // its own tachometer sees low revs, changes down, sees low revs again and
+      // walks itself into first at a hundred kilometres an hour. What the gear
+      // would actually be turning at is the thing that matters.
+      const at = g => Math.abs(vLong) / WHEEL_R * Math.abs(ratio(g) * FINAL) / RPM2RAD;
+      const now = at(gear), below = gear > 1 ? at(gear - 1) : 1e9;
+      if (now > 6250 && gear < 6) { shiftTo(gear + 1); autoShiftLock = 0.35; shiftCut = 0.07; }
+      // kickdown: you have asked for everything, and there is a lower gear that
+      // gives more of it without meeting the limiter
+      else if (gas > 0.62 && gear > 1 && now < 5000 && below < LIMITER - 400) {
+        shiftTo(gear - 1); autoShiftLock = 0.5; shiftCut = 0.06;
+      }
+      // and coasting down, sooner than it used to, so you come out of a corner
+      // in the right gear rather than two too tall
+      else if (now < 2500 && gear > 1 && below < LIMITER - 200) {
+        shiftTo(gear - 1); autoShiftLock = 0.35; shiftCut = 0.06;
+      }
     }
   }
 
@@ -2668,6 +2850,7 @@ renderer.setAnimationLoop(() => {
     if (peak / RPM2RAD > BURST) {          // money shift: a rod leaves the block
       engineOn = false; blown = true; camShake = 1.4; seize = 0.45;
     }
+    else if (IS_EV) { /* nothing to stall and no converter to creep on */ }
     else if (manual && rpm < 380) engineOn = false;                          // stalled
     else if (!manual && rpm < IDLE) { omegaE = IDLE * RPM2RAD; rpm = IDLE; } // converter
   } else if (!blown && rpm > 550 && gas) {
@@ -2777,6 +2960,22 @@ renderer.setAnimationLoop(() => {
     const climb = (groundY - pos.y) / Math.max(dt, 1e-3);
     if (climb < -14 && speedAbs > 9) { airborne = true; vy = climb * 0.25; }
     else pos.y += (groundY - pos.y) * (1 - Math.exp(-dt * 18));
+  }
+
+  // ---------- the central barrier ----------
+  // Concrete does not care how fast you were going. Held as a lateral limit
+  // rather than as a solid in the list, because it is a continuous wall and the
+  // circle test the boulders use would need one every couple of metres.
+  if (divided(sEst) && dEst < 0.62) {
+    pos.x += rx * (0.62 - dEst); pos.z += rz * (0.62 - dEst);
+    // Scrub proportionally to how hard you are leaning on it, not by a fixed
+    // fraction per frame. A flat multiplier fires again every frame you stay in
+    // contact, so holding the wall brought the car to a complete stop with the
+    // throttle wide open — a barrier scrapes, it does not anchor you.
+    const into = Math.max(0, -vLat);
+    vLat = Math.max(vLat, 0);
+    vLong -= Math.sign(vLong) * Math.min(Math.abs(vLong), into * 0.5 + 1.5 * dt);
+    camShake = Math.min(1, camShake + into * 0.06);
   }
 
   // ---------- boulder collisions ----------
@@ -2934,7 +3133,7 @@ renderer.setAnimationLoop(() => {
   }
   toastFor = Math.max(0, toastFor - dt);
   setSty(el.toast, 'opacity', toastFor > 0 ? '0.9' : '0');
-  setTxt(el.gear, gear === -1 ? 'R' : gear === 0 ? 'N' : gear);
+  setTxt(el.gear, gear === -1 ? 'R' : gear === 0 ? 'N' : IS_EV ? 'D' : gear);
   setCls(el.gear, (manual && rpm > 6400 && gear > 0) ? 'warn' : '');
   // the dial is scaled to BURST, so the red band above redline is real estate you
   // can actually watch the needle climb into
