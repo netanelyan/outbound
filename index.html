@@ -79,48 +79,94 @@
      is, and that is the only navigation this needs. */
   #minimap { position: absolute; bottom: 22px; left: 20px; opacity: .82; }
   #maplabel { position: absolute; bottom: 214px; left: 24px; font-size: 9.5px; letter-spacing: 3px; opacity: .38; }
-  #pickhint kbd { background: rgba(255,255,255,.16); border-radius: 4px; padding: 1px 6px; font: inherit; font-size: 11.5px; }
   #keys {
     max-width: 660px; margin-top: 6px; font-size: 11px; line-height: 2.0;
     text-align: center; opacity: .42;
   }
   #keys b { font-weight: 600; background: rgba(255,255,255,.14); border-radius: 4px; padding: 1px 6px; font-size: 10.5px; }
 
-  /* Car picker. Sits over the scene rather than replacing it, and the gradient
-     runs out before the bottom of the screen so the car you are choosing is
-     visible underneath while you arrow between them. */
+  /* The car picker. This used to be five rows of cards with a label down the
+     left, which is the shape of a settings dialog: every choice the same size,
+     nothing to look at, and the thing you are actually choosing hidden behind
+     it. Now the car is the screen — its name at the top, its numbers under
+     that, and the middle deliberately left clear so the model itself shows
+     through. The four other choices are one line of pills along the bottom,
+     because they are settings and should look like settings; the car is not. */
   #pick {
     position: fixed; inset: 0; z-index: 5; display: flex; flex-direction: column;
-    align-items: center; gap: 18px; padding-top: 7vh; overflow-y: auto;
-    background: linear-gradient(180deg, rgba(26,13,28,.90) 0%, rgba(26,13,28,.72) 52%, rgba(26,13,28,0) 92%);
+    align-items: center; justify-content: space-between; padding: 4.5vh 0 2.6vh;
+    background: linear-gradient(180deg, rgba(24,12,26,.94) 0%, rgba(24,12,26,.66) 26%,
+      rgba(24,12,26,.14) 48%, rgba(24,12,26,.20) 60%, rgba(24,12,26,.88) 86%, rgba(24,12,26,.96) 100%);
     font-family: "Segoe UI", system-ui, sans-serif; color: #fff;
-    text-shadow: 0 1px 5px rgba(0,0,0,.5); user-select: none;
+    text-shadow: 0 2px 10px rgba(0,0,0,.6); user-select: none; overflow: hidden;
   }
-  #picktitle { font-size: 15px; letter-spacing: 8px; opacity: .8; font-weight: 600; }
-  #pickrows { display: flex; flex-direction: column; gap: 13px; }
-  .prow { display: flex; align-items: stretch; gap: 14px; }
-  .plabel {
-    width: 84px; padding-top: 15px; text-align: right; font-size: 10px;
-    letter-spacing: 3px; opacity: .32; transition: opacity .15s, color .15s;
+  #pickhead, #pickfoot { display: flex; flex-direction: column; align-items: center; }
+  #picktitle { font-size: 11px; letter-spacing: 9px; opacity: .40; font-weight: 600; }
+
+  /* The car itself */
+  #pickcar { display: flex; align-items: center; gap: 22px; margin-top: 1.6vh; }
+  .parrow {
+    background: none; border: 0; color: #fff; font: inherit; font-size: 40px; line-height: 1;
+    opacity: .26; cursor: pointer; padding: 0 6px; transition: opacity .15s, transform .15s;
   }
-  .prow.active .plabel { opacity: 1; color: #ffd166; }
-  .pcards { display: flex; gap: 11px; }
-  .pcard {
-    width: 204px; padding: 13px 15px 12px; text-align: left; cursor: pointer;
-    background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.12);
-    border-radius: 11px; color: inherit; font: inherit; opacity: .6;
-    transition: background .15s, border-color .15s, transform .15s, opacity .15s;
+  .parrow:hover { opacity: .95; transform: scale(1.18); }
+  #pcmid { text-align: center; min-width: 460px; }
+  #pcname {
+    font-size: 50px; font-weight: 700; letter-spacing: 3px; line-height: 1.04;
+    transition: opacity .12s;
   }
-  .pcard:hover { background: rgba(255,255,255,.10); opacity: .92; }
-  .pcard.on { background: rgba(255,255,255,.11); border-color: rgba(255,209,102,.45); opacity: 1; }
-  .prow.active .pcard.on { background: rgba(255,255,255,.16); border-color: #ffd166; transform: translateY(-4px); }
-  .pcard b { display: block; font-size: 16px; font-weight: 600; letter-spacing: 1.2px; }
-  .pcard i { display: block; font-style: normal; font-size: 9.5px; letter-spacing: 2px; opacity: .6; margin-top: 5px; }
-  .pcard em { display: block; font-style: normal; font-size: 10.5px; line-height: 1.65; opacity: .6; margin-top: 10px; }
-  .pcard u { display: block; text-decoration: none; margin-top: 9px; font-size: 11px;
-             letter-spacing: 1px; color: #ffd166; opacity: .7; }
-  .prow.active .pcard.on u { opacity: 1; }
-  #pickhint { font-size: 12px; letter-spacing: 1.5px; opacity: .62; margin-bottom: 4vh; }
+  #pcblurb { font-size: 10px; letter-spacing: 5px; opacity: .52; margin-top: 9px; }
+  #pcstats { display: flex; justify-content: center; gap: 9px; margin-top: 16px; }
+  .ptile {
+    min-width: 104px; padding: 8px 12px 9px; border-radius: 9px;
+    background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.11);
+  }
+  .ptile b { display: block; font-size: 19px; font-weight: 600; letter-spacing: .5px; color: #ffd166; }
+  .ptile i { display: block; font-style: normal; font-size: 8.5px; letter-spacing: 2.4px;
+             opacity: .45; margin-top: 4px; }
+  #pcdots { display: flex; gap: 7px; margin-top: 18px; }
+  #pcdots span {
+    width: 7px; height: 7px; border-radius: 4px; background: rgba(255,255,255,.24);
+    cursor: pointer; transition: background .15s, width .15s;
+  }
+  #pcdots span.on { background: #ffd166; width: 22px; }
+
+  /* Everything else, along the bottom */
+  #pickset { display: flex; gap: 9px; }
+  .pset {
+    padding: 8px 15px 9px; border-radius: 9px; cursor: pointer; text-align: center;
+    background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.10);
+    color: inherit; font: inherit; transition: background .15s, border-color .15s, transform .15s;
+  }
+  .pset i { display: block; font-style: normal; font-size: 8px; letter-spacing: 2.4px;
+            opacity: .38; margin-bottom: 4px; }
+  .pset b { display: block; font-size: 13px; font-weight: 600; letter-spacing: 1.4px; }
+  .pset:hover { background: rgba(255,255,255,.10); }
+  .pset.active {
+    background: rgba(255,209,102,.13); border-color: #ffd166; transform: translateY(-3px);
+  }
+  .pset.active i { opacity: .8; color: #ffd166; }
+  #pickdesc {
+    font-size: 11px; line-height: 1.7; opacity: .5; margin-top: 13px;
+    height: 2.4em; text-align: center; max-width: 640px;
+  }
+  /* The one thing on the screen you are meant to press. */
+  #pickgo {
+    margin-top: 4px; font-size: 15px; font-weight: 600; letter-spacing: 6px; color: #ffd166;
+    animation: gopulse 2.1s ease-in-out infinite;
+  }
+  #pickgo kbd {
+    background: rgba(255,209,102,.16); border: 1px solid rgba(255,209,102,.4);
+    border-radius: 5px; padding: 2px 9px; font: inherit; font-size: 12px; letter-spacing: 1px;
+    margin-right: 12px; color: #ffd166;
+  }
+  @keyframes gopulse { 0%, 100% { opacity: .72; } 50% { opacity: 1; } }
+  #keys {
+    max-width: 780px; margin-top: 16px; font-size: 10px; line-height: 1.95;
+    text-align: center; opacity: .30;
+  }
+  #keys b { font-weight: 600; background: rgba(255,255,255,.13); border-radius: 3px;
+            padding: 1px 5px; font-size: 9.5px; }
 </style>
 </head>
 <body>
@@ -148,16 +194,29 @@
 </div>
 
 <div id="pick">
-  <div id="picktitle">OUTBOUND</div>
-  <div id="pickrows"></div>
-  <div id="keys">
-    <b>W</b>/<b>S</b> gas &amp; brake &nbsp; <b>A</b>/<b>D</b> steer &nbsp; <b>Space</b> handbrake &nbsp; <b>C</b> camera<br>
-    <b>Shift</b> clutch &mdash; hold it to change gear &nbsp; <b>1</b>&ndash;<b>6</b> gears &nbsp; <b>Q</b>/<b>E</b> down / up<br>
-    to pull away: hold <b>Shift</b>, select <b>1</b>, rev up, then ease off &nbsp; <b>0</b> neutral<br>
-    reverse: <b>R</b> to select it, then <b>S</b> to back up and <b>W</b> to stop<br>
-    <b>T</b> back to auto &nbsp; <b>G</b> autopilot &nbsp; <b>H</b> headlights &nbsp; <b>P</b> fresh car &nbsp; <b>M</b> sound &nbsp; <b>Esc</b> these settings
+  <div id="pickhead">
+    <div id="picktitle">OUTBOUND</div>
+    <div id="pickcar">
+      <button class="parrow" id="pcprev">&lsaquo;</button>
+      <div id="pcmid">
+        <div id="pcname"></div>
+        <div id="pcblurb"></div>
+        <div id="pcstats"></div>
+      </div>
+      <button class="parrow" id="pcnext">&rsaquo;</button>
+    </div>
+    <div id="pcdots"></div>
   </div>
-  <div id="pickhint"><kbd>&uarr;</kbd><kbd>&darr;</kbd> row &nbsp;&middot;&nbsp; <kbd>&larr;</kbd><kbd>&rarr;</kbd> choose &nbsp;&middot;&nbsp; <kbd>Enter</kbd> drive</div>
+  <div id="pickfoot">
+    <div id="pickset"></div>
+    <div id="pickdesc"></div>
+    <div id="pickgo"><kbd>Enter</kbd>DRIVE</div>
+    <div id="keys">
+      <b>W</b>/<b>S</b> gas &amp; brake &nbsp; <b>A</b>/<b>D</b> steer &nbsp; <b>Space</b> handbrake &nbsp; <b>C</b> camera &nbsp; <b>G</b> autopilot &nbsp; <b>H</b> headlights<br>
+      <b>E</b> hold for cruise control &nbsp; <b>Shift</b> clutch &mdash; hold to change gear &nbsp; <b>1</b>&ndash;<b>7</b> gears &nbsp; <b>0</b> neutral &nbsp; <b>T</b> back to auto<br>
+      reverse: <b>R</b> to select it, then <b>S</b> to back up and <b>W</b> to stop &nbsp;&middot;&nbsp; <b>P</b> fresh car &nbsp; <b>M</b> sound &nbsp; <b>Esc</b> back here
+    </div>
+  </div>
 </div>
 
 <script type="importmap">
@@ -215,7 +274,7 @@ const curvature = s =>
   0.0016 * Math.sin(s * 0.0011) + 0.0022 * Math.sin(s * 0.00053 + 2.1) + 0.0012 * Math.sin(s * 0.0021 + 4.2);
 // The road's actual bend. An autobahn keeps a tenth of it — dead straight reads
 // as a treadmill, and a motorway does drift. Everything that asks what shape the
-// road is asks THIS, so the spline, the fork stubs, the solid/dashed rule and
+// road is asks THIS, so the spline, the solid/dashed rule and
 // the autopilot's corner scan all agree about it.
 let BEND = 1;
 const roadCurve = s => curvature(s) * BEND;
@@ -225,95 +284,21 @@ const elevation = s =>
 const pts = [];
 const gen = { x: 0, z: 0, heading: 0 };
 
-// ================= junctions =================
-// Every few kilometres the road divides and you pick a side. The spline is one
-// array of points and everything in the game — streaming, the probe, the arc
-// length the car's position is expressed in — depends on that, so a junction is
-// not a graph: it is a point past which the road CANNOT BE GENERATED until the
-// choice has been made. Both continuations are drawn ahead of it as stubs so you
-// can see what you are choosing between; once you commit, the one you took is
-// generated for real and the other stays as a road going off into the trees.
-const FORK_EVERY = 2400;                    // metres of road between junctions
-// A sharp bend held briefly, not a gentle one held for a third of a kilometre.
-// The sine profile has zero slope at the junction itself, so the two roads
-// overlapped for their first 120 m — two coplanar ribbons in the same place —
-// and only parted long after you had committed. 0.0033 over 70 m turns each
-// branch 13 degrees, which puts sixteen metres between them by the time you
-// reach the junction and about sixty by the time they are out of sight.
-const FORK_BEND = 0.0033;
-const FORK_RUN = 70;                        // how far the divergence is held
-// Committed far enough out that the world past the junction is built while it is
-// still in the fog, rather than appearing a hundred metres in front of you.
-const FORK_COMMIT = 620;
-const forkChoice = new Map();               // fork index -> -1 left, +1 right
-const forkIndexAt = s => Math.floor(s / FORK_EVERY);
-const forkS = i => i * FORK_EVERY;
-// The bend a branch adds, on top of the road's own curvature, for FORK_RUN after
-// the junction — tapered in and out so the two roads part smoothly.
-function forkBend(s) {
-  const i = forkIndexAt(s);
-  if (i < 1) return 0;
-  const side = forkChoice.get(i);
-  if (side === undefined) return 0;
-  const d = s - forkS(i);
-  if (d < 0 || d > FORK_RUN) return 0;
-  // eased on and off so the road has no kink in it where the bend starts
-  return side * FORK_BEND * smoothstep(0, 14, d) * (1 - smoothstep(FORK_RUN - 14, FORK_RUN, d));
-}
-// How far the road has actually been generated, and whether a junction is what
-// is stopping it.
-let genBlocked = false;
-// Change your mind about a junction. The choice has to be taken early so the
-// world past it can be built while it is still in the fog — but that means you
-// can then steer onto the OTHER branch, which is a stub 230 m long that stops
-// dead, and driving off the end of it is what "the junctions are very bugged"
-// looks like. So the decision is not final: while the junction is still ahead,
-// whichever branch you are actually heading for becomes the real road. Points
-// past it are thrown away, the generator is rewound to the junction, and the
-// chunks built from them go with it.
-function refork(fi, side) {
-  if (forkChoice.get(fi) === side) return;
-  forkChoice.set(fi, side);
-  const cut = Math.floor(forkS(fi) / SEG);
-  if (cut + 1 > pts.length) return;
-  pts.length = cut + 1;
-  const last = pts[cut];
-  gen.x = last.x; gen.z = last.z; gen.heading = last.heading;
-  for (const ci of [...chunks.keys()]) if ((ci + 1) * CHUNK * SEG > forkS(fi)) disposeChunk(ci);
-  pendingChunks = true;
-}
+// The road is one array of points, generated forward and never branching. It
+// used to divide every couple of kilometres and let you pick a side, which
+// meant a point past which the road COULD NOT BE GENERATED until you chose —
+// and everything downstream of that (a stub you could steer onto and drive off
+// the end of, a choice that had to be revocable, a generator that could stall
+// waiting for you) existed to prop up that one idea. It is gone, and so is all
+// of it.
 function ensurePoints(n) {
   while (pts.length <= n) {
     const i = pts.length, s = i * SEG;
-    const fi = forkIndexAt(s);
-    if (fi >= 1 && s >= forkS(fi) && !forkChoice.has(fi) && !TERRAIN[terrainIndex].straight) { genBlocked = true; return; }
-    gen.heading += (roadCurve(s) + forkBend(s)) * SEG;
+    gen.heading += roadCurve(s) * SEG;
     gen.x += Math.sin(gen.heading) * SEG;
     gen.z -= Math.cos(gen.heading) * SEG;
     pts.push({ x: gen.x, y: elevation(s), z: gen.z, heading: gen.heading });
   }
-  genBlocked = false;
-}
-// Walk a branch WITHOUT committing to it, for drawing the two options. Starts
-// from the last real point and applies that side's bend.
-function forkStub(fi, side, len) {
-  const s0 = forkS(fi);
-  const i0 = Math.floor(s0 / SEG);
-  ensurePoints(i0);
-  const a = pts[Math.min(i0, pts.length - 1)];
-  if (!a) return [];
-  const out = [{ x: a.x, y: a.y, z: a.z, heading: a.heading }];
-  let h = a.heading, x = a.x, z = a.z;
-  for (let d = SEG; d <= len; d += SEG) {
-    const s = s0 + d;
-    const bend = d <= FORK_RUN
-      ? side * FORK_BEND * smoothstep(0, 14, d) * (1 - smoothstep(FORK_RUN - 14, FORK_RUN, d)) : 0;
-    h += (roadCurve(s) + bend) * SEG;
-    x += Math.sin(h) * SEG;
-    z -= Math.cos(h) * SEG;
-    out.push({ x, y: elevation(s), z, heading: h });
-  }
-  return out;
 }
 ensurePoints(4);
 
@@ -948,7 +933,7 @@ function groundAt(s, side, dist) {
   let k0 = Math.floor(kf), tk = kf - k0;
   ensurePoints(k0 + 2);
   // Same clamp as getPose: past an undecided junction, or straight after a
-  // re-fork has thrown the points away, there is nothing out here to sample.
+  // the road has not been generated this far, there is nothing out here to sample.
   if (!(k0 >= 0)) { k0 = 0; tk = 0; }
   if (k0 + 1 >= pts.length) { k0 = Math.max(0, pts.length - 2); tk = 1; }
   const beyond = Math.max(0, dist - edgeAt(s, side));
@@ -1431,47 +1416,7 @@ function buildChunk(ci) {
     if (lamps.length) group.add(new THREE.Mesh(mergeGeos(lamps), lampMat));
   }
 
-  { // The other way. Once the choice is made the branch you took is the road;
-    // this is the one you did not, running off for a few hundred metres before
-    // the trees take it. It is drawn from the same generator, so it is exactly
-    // the road that would have been there.
-    const fi = forkIndexAt(sAt(CHUNK)) ;
-    for (const f of [fi, fi - 1]) {
-      if (f < 1 || !forkChoice.has(f)) continue;
-      const fs0 = forkS(f);
-      if (fs0 < sAt(0) - 40 || fs0 > sAt(CHUNK)) continue;
-      const branch = forkStub(f, -forkChoice.get(f), 230);
-      if (branch.length < 3) continue;
-      const rows = branch.length;
-      const pos = new Float32Array(rows * 6), uv = new Float32Array(rows * 4), idx = [];
-      for (let k = 0; k < rows; k++) {
-        const p = branch[k];
-        const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
-        // narrows away to nothing at the end, so it reads as going into the trees
-        const w = LANE_W * (k < rows - 22 ? 1 : Math.max(0, rows - 1 - k) / 22);
-        // Settled onto the terrain rather than holding the road's own elevation.
-        // The ground falls away with distance from the carriageway — it is a
-        // different landscape out there — so a branch that kept the road height
-        // was measured thirty metres in the air by the end of it. Flush with the
-        // tarmac at the junction, on the ground a hundred metres later.
-        const d = k * SEG, mp = getPose(fs0 + d);
-        const mrx = Math.cos(mp.heading), mrz = Math.sin(mp.heading);
-        const lat = (p.x - mp.x) * mrx + (p.z - mp.z) * mrz;
-        const g = groundAt(fs0 + d, Math.sign(lat) || 1, Math.abs(lat));
-        const blend = smoothstep(0, 100, d);
-        const y = (p.y * (1 - blend) + g * blend) + 0.07;
-        const v = (fs0 + d) / ROAD_TILE;
-        pos.set([p.x - rx * w, y, p.z - rz * w, p.x + rx * w, y, p.z + rz * w], k * 6);
-        uv.set([-w / 6, v, w / 6, v], k * 4);
-        if (k < rows - 1) { const a = k * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
-      }
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-      geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-      geo.setIndex(idx); geo.computeVertexNormals();
-      group.add(new THREE.Mesh(geo, roadMat));
-    }
-  }
+
 
   group.userData.solids = solids;
   scene.add(group);
@@ -2258,6 +2203,10 @@ function selectCar(i) {
   if (gear > RATIOS.length) gear = RATIOS.length;
   if (IS_EV) { manual = false; if (gear > 1) gear = 1; engineOn = true; blown = false; }
   pend.box = manual ? 1 : 0;
+  // What the autopilot will now aim for: this car's geared maximum, spelled out
+  // the same way the picker card spells it, and for the same reason — this runs
+  // before the drivetrain constants below have been initialised.
+  CRUISE = LIMITER * (Math.PI / 30) * 0.38 / ((IS_EV ? 1.05 : RATIOS[RATIOS.length - 1]) * FINAL);
   shadow.scale.set(s.shadow[0] / 2.9, s.shadow[1] / 5.5, 1);
 }
 function openPicker() {
@@ -2329,7 +2278,6 @@ function applyTerrain(i) {
   const reshape = wantBend !== BEND;
   terrainIndex = i;
   BEND = wantBend;
-  forkSaid = 0;
   RELIEF = TERRAIN[i].city ? 0.22 : 1;
   if (reshape) {
     // The spline is a different SHAPE now, and points are generated once and
@@ -2337,10 +2285,6 @@ function applyTerrain(i) {
     // put back on it. Distance travelled survives; the road under it does not.
     pts.length = 0;
     gen.x = 0; gen.z = 0; gen.heading = 0;
-    // Junctions behind us are settled arbitrarily, or generation would stop at
-    // the first one and never reach the car.
-    forkChoice.clear();
-    for (let f = 1; f <= forkIndexAt(sEst + 1200); f++) forkChoice.set(f, Math.random() < 0.5 ? -1 : 1);
     ensurePoints(8);
     onRoadAt(sEst);
     vLat = 0; yawRate = 0; vy = 0;
@@ -2370,45 +2314,64 @@ const PICK = [
   { label: 'WEATHER', list: CONDITIONS, key: 'cond' },
 ];
 let pickRow = 0;
+// The car's geared maximum, spelled out rather than using RPM2RAD and WHEEL_R:
+// this runs while the module is still evaluating and those are declared below.
+const carTop = c => Math.round((c.redline - 150) * (Math.PI / 30) * 0.38
+                               / ((c.ev ? 1.05 : c.gears[c.gears.length - 1]) * c.final) * 3.6 / 5) * 5;
+const pcName = document.getElementById('pcname');
+const pcBlurb = document.getElementById('pcblurb');
+const pcStats = document.getElementById('pcstats');
+const pcDots = document.getElementById('pcdots');
+const pickDesc = document.getElementById('pickdesc');
+const cycle = (r, d) => {
+  const row = PICK[r], n = row.list.length;
+  pickRow = r;
+  pend[row.key] = (pend[row.key] + d + n) % n;
+  applyPending(); paintPicker();
+};
 {
-  const rowsEl = document.getElementById('pickrows');
+  document.getElementById('pcprev').addEventListener('click', () => cycle(0, -1));
+  document.getElementById('pcnext').addEventListener('click', () => cycle(0, 1));
+  CARS.forEach((_, i) => {
+    const d = document.createElement('span');
+    d.addEventListener('click', () => { pickRow = 0; pend.car = i; applyPending(); paintPicker(); });
+    pcDots.appendChild(d);
+  });
+  // The other four are pills showing what is currently chosen, not a grid of
+  // every option: clicking one steps it, and whatever row you are on explains
+  // itself on the single line underneath.
+  const setEl = document.getElementById('pickset');
   PICK.forEach((row, r) => {
-    const el = document.createElement('div');
-    el.className = 'prow';
-    const lab = document.createElement('div');
-    lab.className = 'plabel';
-    lab.textContent = row.label;
-    const cards = document.createElement('div');
-    cards.className = 'pcards';
-    row.list.forEach((item, i) => {
-      const b = document.createElement('button');
-      b.className = 'pcard';
-      // For a car, the two numbers that decide how it feels down a straight.
-      let stats = item.stats;
-      if (row.key === 'car') {
-        // RPM2RAD and WHEEL_R spelled out: the cards are built while the module
-        // is still evaluating and the drivetrain constants are declared below.
-        const gTop = item.ev ? 1.05 : item.gears[item.gears.length - 1];
-        const top = (item.redline - 150) * (Math.PI / 30) * 0.38 / (gTop * item.final) * 3.6;
-        stats += '<u>' + Math.round(top / 5) * 5 + ' km/h &nbsp;·&nbsp; '
-               + (item.ev ? 'single speed' : item.gears.length + ' gears') + '</u>';
-      }
-      b.innerHTML = '<b>' + item.name + '</b><i>' + item.blurb + '</i><em>' + stats + '</em>';
-      b.addEventListener('click', () => { pickRow = r; pend[row.key] = i; applyPending(); paintPicker(); });
-      cards.appendChild(b);
-    });
-    el.appendChild(lab); el.appendChild(cards);
-    rowsEl.appendChild(el);
-    row.el = el; row.cards = cards;
+    if (r === 0) return;
+    const b = document.createElement('button');
+    b.className = 'pset';
+    const cap = document.createElement('i');
+    cap.textContent = row.label;
+    const val = document.createElement('b');
+    b.appendChild(cap); b.appendChild(val);
+    b.addEventListener('click', () => cycle(r, 1));
+    setEl.appendChild(b);
+    row.el = b; row.val = val;      // held, not looked up again on every repaint
   });
 }
 function paintPicker() {
+  const car = CARS[pend.car];
+  pcName.textContent = car.name;
+  pcBlurb.textContent = car.blurb;
+  pcStats.innerHTML =
+      '<div class="ptile"><b>' + carTop(car) + '</b><i>KM/H</i></div>'
+    + '<div class="ptile"><b>' + (car.ev ? '1' : car.gears.length) + '</b><i>'
+      + (car.ev ? 'SINGLE SPEED' : 'GEARS') + '</i></div>'
+    + '<div class="ptile"><b>' + car.mass + '</b><i>KG</i></div>';
+  for (let i = 0; i < pcDots.children.length; i++)
+    pcDots.children[i].className = i === pend.car ? 'on' : '';
+  document.getElementById('pickcar').style.opacity = pickRow === 0 ? '1' : '.72';
   PICK.forEach((row, r) => {
-    row.el.className = r === pickRow ? 'prow active' : 'prow';
-    const sel = pend[row.key];
-    for (let i = 0; i < row.cards.children.length; i++)
-      row.cards.children[i].className = i === sel ? 'pcard on' : 'pcard';
+    if (r === 0) return;
+    row.el.className = r === pickRow ? 'pset active' : 'pset';
+    row.val.textContent = row.list[pend[row.key]].name;
   });
+  pickDesc.innerHTML = PICK[pickRow].list[pend[PICK[pickRow].key]].stats;
 }
 // Applied the moment you land on it, so the scene behind the overlay IS the
 // preview — you choose by looking at the thing rather than at a description.
@@ -2804,25 +2767,27 @@ addEventListener('keydown', e => {
 
   // Read e.code, not e.key: with the clutch (Shift) held, "1" arrives as "!"
   let want = null;
-  const digit = /^(?:Digit|Numpad)([0-6])$/.exec(e.code);
+  const digit = /^(?:Digit|Numpad)([0-7])$/.exec(e.code);
   if (digit) want = Math.min(+digit[1], RATIOS.length);
   else if (e.code === 'KeyR') want = -1;
   if (want !== null) {
     if (!manual) setManual(true);      // asking for a gear means you want manual
     shiftTo(want);
   }
-  // sequential shifting, so you never need Shift and a number at once
-  if (e.code === 'KeyE' || e.code === 'BracketRight') { if (!manual) setManual(true); shiftTo(Math.min(RATIOS.length, Math.max(0, gear) + 1)); }
-  if (e.code === 'KeyQ' || e.code === 'BracketLeft') { if (!manual) setManual(true); shiftTo(Math.max(1, gear - 1)); }
+  // Cruise control: hold E and the car keeps whatever speed it had the moment
+  // you pressed it. Not a toggle — you are holding it on, so there is never a
+  // question of whether it is still armed, and letting go is always the answer.
+  if (k === 'e' && !e.repeat) cruiseSet = (gear > 0 && vLong > 4 && engineOn) ? vLong : 0;
 
   if (k.startsWith('arrow') || k === ' ') e.preventDefault();
   initAudio();
 });
 addEventListener('keyup', e => {
   keys[e.key.toLowerCase()] = false;
+  if (e.key.toLowerCase() === 'e') cruiseSet = 0;
   if (!e.shiftKey) keys['shift'] = false;
 });
-addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; cruiseSet = 0; });
 
 // ================= drivetrain =================
 // The engine is a real rotating inertia, not a number lerped toward road speed.
@@ -2841,7 +2806,14 @@ const WHEEL_R = 0.38;
 const RPM2RAD = Math.PI / 30;
 const CAR_R = 1.1;         // how far the car keeps its middle from anything solid
 const REV_MAX = 2.2;        // m/s — reverse will not select above walking pace
-const CRUISE = 66;          // m/s the autopilot will wind up to on an open road
+// What the autopilot is aiming for on an open road. This was one number for
+// every car — 66 m/s — which meant the Land Rover was asked for a speed it
+// cannot reach and the hypercar was held to 238 km/h by a constant rather than
+// by anything about the car. It is now the car's own geared maximum, the same
+// figure printed on its card, so "flat out" means flat out: whatever the engine
+// and the gearing will actually give. Corners, traffic and grip still cut it
+// down — this is only the ceiling, and for most cars drag reaches it first.
+let CRUISE = 66;
 // PEAK_TQ and MASS live with the car specs — they are the two numbers that
 // actually differ between a 1100 kg Ferrari and a 1700 kg BMW.
 const IE = 0.42;            // engine + flywheel inertia, kg m^2
@@ -2931,6 +2903,7 @@ let yawRate = 0;
 let vy = 0, airborne = false;
 let sEst = 0, dEst = 0, groundY = 0;
 let steerAngle = 0, wheelSpin = 0, slipAmount = 0;
+let cruiseSet = 0, cruiseI = 0;             // m/s being held, 0 = not holding
 let bodyPitch = 0, bodyRoll = 0, suspPitch = 0, suspRoll = 0;
 let camShake = 0, skidTimer = 0;
 
@@ -3369,8 +3342,7 @@ const clock = new THREE.Clock();
 let odo = 0, autoShiftLock = 0, lastChunk = -9999, pendingChunks = false;
 // The road has no end, so the only thing that can tell you how far you have come
 // is how far you have come. A running trip and a marker every ten kilometres.
-let tripTime = 0, milestone = 0, toastFor = 0, forkToast = 0, forkTook = "", forkWarn = 0, forkSaid = 0;
-let forkHeld = 0, forkFlips = 0;
+let tripTime = 0, milestone = 0, toastFor = 0;
 const hhmm = t => (t >= 3600 ? Math.floor(t / 3600) + 'h ' : '') + Math.floor(t / 60) % 60 + 'm';
 
 // Adaptive resolution. Fill rate is the one cost here that scales with a screen
@@ -3427,6 +3399,21 @@ renderer.setAnimationLoop(() => {
     gas = gear === -1 ? backKey : fwdKey;
     brakeIn = picking ? 1 : (gear === -1 ? fwdKey : backKey);
     steerIn = ((keys['d'] || keys['arrowright']) ? 1 : 0) - ((keys['a'] || keys['arrowleft']) ? 1 : 0);
+    // Touching either pedal hands the car straight back: this holds a speed for
+    // you, it does not take the car off you. It will not hold one in reverse or
+    // through a stall either, and it brakes far more gently than it accelerates
+    // — a cruise control that stands on the brakes down a hill is a fairground
+    // ride, and engine braking is most of what one really does.
+    if (cruiseSet > 0 && !picking && gear > 0 && engineOn && !fwdKey && !backKey) {
+      // Proportional alone sits about 4% under the speed you asked for, because
+      // the throttle it takes to hold a speed is exactly the throttle a pure
+      // error term cannot ask for once the error has gone. The integral is what
+      // remembers the drag, so 170 means 170 and not 165.
+      const err = cruiseSet - vLong;
+      cruiseI = clamp(cruiseI + err * dt * 0.12, -0.5, 0.9);
+      gas = clamp(err * 0.45 + cruiseI, 0, 1);
+      brakeIn = clamp(-err * 0.16, 0, 0.5);
+    } else cruiseI = 0;
   }
   const handbrake = (!autoDrive && keys[' ']) ? 1 : 0;
 
@@ -3696,51 +3683,6 @@ renderer.setAnimationLoop(() => {
     else pos.y += (groundY - pos.y) * (1 - Math.exp(-dt * 18));
   }
 
-  // ---------- junctions ----------
-  // Decided by which half of the road you are on when you get close enough. The
-  // moment it is decided the world past the junction can be generated, so the
-  // chunks that were waiting build on the next pass.
-  {
-    const fi = forkIndexAt(sEst) + 1;
-    const toGo = forkS(fi) - sEst;
-    const side = dEst < 0 ? -1 : 1;
-    if (fi >= 1 && toGo < FORK_COMMIT && toGo > -900 && !forkChoice.has(fi)) {
-      forkChoice.set(fi, side);
-      pendingChunks = true;
-      forkHeld = 0;
-    } else if (fi >= 1 && forkChoice.has(fi) && toGo > 70 && toGo < FORK_COMMIT) {
-      // Held for half a second before acting on it, and only so many times, so
-      // that drifting across the line does not rebuild the world every frame.
-      forkHeld = side === forkChoice.get(fi) ? 0 : forkHeld + dt;
-      if (forkHeld > 0.5 && forkFlips < 4) { refork(fi, side); forkFlips++; forkHeld = 0; }
-    }
-    if (forkIndexAt(sEst) >= fi) forkFlips = 0;
-
-    // Safety net: the road stops generating at an undecided junction, so if we
-    // are ever close to where it stops, decide now rather than let anybody
-    // arrive at the end of the world.
-    if (genBlocked) {
-      const endS = (pts.length - 1) * SEG;
-      if (endS - sEst < 420) {
-        const f = forkIndexAt(endS);
-        if (f >= 1 && !forkChoice.has(f)) { forkChoice.set(f, side); pendingChunks = true; }
-      }
-    }
-    // Announced as you actually pass the junction. The decision is taken 620 m
-    // earlier so the world past it can be built while it is still in the fog,
-    // and saying "took the left" then means saying it to somebody who cannot yet
-    // see a junction at all.
-    const passed = forkIndexAt(sEst);
-    if (passed >= 1 && passed !== forkSaid && forkChoice.has(passed)) {
-      forkSaid = passed;
-      forkToast = 2.4;
-      forkTook = forkChoice.get(passed) < 0 ? 'LEFT' : 'RIGHT';
-    }
-    // and a word about it while you still have time to move across
-    forkWarn = (fi >= 1 && !TERRAIN[terrainIndex].straight && !forkChoice.has(fi)
-                && toGo < 1250 && toGo > 0) ? toGo : 0;
-  }
-
   // ---------- the central barrier ----------
   // Concrete does not care how fast you were going. Held as a lateral limit
   // rather than as a solid in the list, because it is a continuous wall and the
@@ -3839,7 +3781,7 @@ renderer.setAnimationLoop(() => {
   // Retried whenever the chunk under the car changes OR the road is still
   // waiting on a junction, because in that case chunks that could not be built a
   // moment ago can be built now.
-  if (carChunk !== lastChunk || genBlocked || pendingChunks) {
+  if (carChunk !== lastChunk || pendingChunks) {
     lastChunk = carChunk;
     pendingChunks = false;
     for (let ci = Math.max(0, carChunk - BEHIND); ci <= carChunk + AHEAD; ci++)
@@ -3998,19 +3940,14 @@ renderer.setAnimationLoop(() => {
   setTxt(el.trip, hhmm(tripTime) + ' · ' + Math.round(odo / Math.max(tripTime, 1) * 3.6) + ' avg');
   if (odo > (milestone + 1) * 10000) {
     milestone = Math.floor(odo / 10000);
-    if (forkWarn <= 0 && forkToast <= 0) el.toast.innerHTML = milestone * 10 + ' KM<small>' + hhmm(tripTime) + ' on the road</small>';
+    el.toast.innerHTML = milestone * 10 + ' KM<small>' + hhmm(tripTime) + ' on the road</small>';
     toastFor = 3.4;
   }
-  // A junction coming up, then which way you went. Same slot as the milestones,
-  // and the junction wins because it is the one you can still do something about.
-  forkToast = Math.max(0, forkToast - dt);
   toastFor = Math.max(0, toastFor - dt);
-  if (forkWarn > 0) {
-    el.toast.innerHTML = 'JUNCTION<small>' + Math.round(forkWarn / 10) * 10
-      + ' m &mdash; keep left or right to choose</small>';
-    setSty(el.toast, 'opacity', '0.9');
-  } else if (forkToast > 0) {
-    el.toast.innerHTML = 'TOOK THE ' + forkTook + '<small>' + (odo / 1000).toFixed(1) + ' km</small>';
+  // Cruise takes the slot while it is held, because it is the one thing here
+  // you need told back to you: it is a speed you set some time ago.
+  if (cruiseSet > 0 && !picking) {
+    el.toast.innerHTML = 'CRUISE<small>holding ' + Math.round(cruiseSet * 3.6) + ' km/h</small>';
     setSty(el.toast, 'opacity', '0.9');
   } else setSty(el.toast, 'opacity', toastFor > 0 ? '0.9' : '0');
   // An automatic is in D and then a gear within it, which is what the selector
