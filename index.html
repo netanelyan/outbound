@@ -213,7 +213,7 @@
     <div id="pickgo"><kbd>Enter</kbd>DRIVE</div>
     <div id="keys">
       <b>W</b>/<b>S</b> gas &amp; brake &nbsp; <b>A</b>/<b>D</b> steer &nbsp; <b>Space</b> handbrake &nbsp; <b>C</b> camera &nbsp; <b>G</b> autopilot &nbsp; <b>H</b> headlights<br>
-      <b>E</b> hold for cruise control &nbsp; <b>Shift</b> clutch &mdash; hold to change gear &nbsp; <b>1</b>&ndash;<b>7</b> gears &nbsp; <b>0</b> neutral &nbsp; <b>T</b> back to auto<br>
+      <b>E</b> cruise control on/off &nbsp; <b>Shift</b> clutch &mdash; hold to change gear &nbsp; <b>1</b>&ndash;<b>7</b> gears &nbsp; <b>0</b> neutral &nbsp; <b>T</b> back to auto<br>
       reverse: <b>R</b> to select it, then <b>S</b> to back up and <b>W</b> to stop &nbsp;&middot;&nbsp; <b>P</b> fresh car &nbsp; <b>M</b> sound &nbsp; <b>Esc</b> back here
     </div>
   </div>
@@ -270,14 +270,44 @@ function mulberry32(seed) {
 }
 
 // ================= road spline =================
-const curvature = s =>
-  0.0016 * Math.sin(s * 0.0011) + 0.0022 * Math.sin(s * 0.00053 + 2.1) + 0.0012 * Math.sin(s * 0.0021 + 4.2);
+// The road is defined by its HEADING as a function of arc length, and curvature
+// is that function differentiated. It used to be the other way round — a
+// curvature function, integrated into a heading — and that is a genuinely
+// different road, because the integral of a sum of sines is unbounded. With the
+// old amplitudes the heading wandered through several complete turns: the road
+// looped, and every couple of kilometres it came back and crossed a stretch of
+// itself. That is what put hills on the carriageway. The terrain skirt built out
+// to 755 m as the far wall of a valley at s = 2790 was, in world space, sitting
+// on the tarmac at s = 4617 — thirty metres above it, because the elevation
+// function had moved on. You drove into the side of a mountain that was standing
+// on the road, and nothing about the terrain code was wrong.
+//
+// Defining the heading directly fixes it by construction rather than by tuning.
+// The four amplitudes sum to 1.36 rad, and 1.36 < pi/2, so cos(heading) is never
+// less than 0.21: every metre of road gains at least 21 cm of -Z. The road is
+// therefore a graph over Z and CANNOT touch itself, whatever the phases do.
+// Amplitude is spent where it shows — the two fast terms carry most of the bend
+// and cost almost no heading, so the road corners harder than the old one
+// (257 m at the tightest against 200) while going somewhere.
+const HDG = [[0.50, 0.00062, 1.3],    // the long sweep across a valley
+             [0.40, 0.00160, 4.1],    // the shape of a hillside
+             [0.30, 0.00420, 2.6],    // proper corners, one every 750 m
+             [0.16, 0.01050, 0.4]];   // kinks and crests
 // The road's actual bend. An autobahn keeps a tenth of it — dead straight reads
 // as a treadmill, and a motorway does drift. Everything that asks what shape the
-// road is asks THIS, so the spline, the solid/dashed rule and
+// road is asks THESE, so the spline, the solid/dashed rule, the terrain fan and
 // the autopilot's corner scan all agree about it.
 let BEND = 1;
-const roadCurve = s => curvature(s) * BEND;
+const roadHeading = s => BEND * (
+    HDG[0][0] * Math.sin(s * HDG[0][1] + HDG[0][2])
+  + HDG[1][0] * Math.sin(s * HDG[1][1] + HDG[1][2])
+  + HDG[2][0] * Math.sin(s * HDG[2][1] + HDG[2][2])
+  + HDG[3][0] * Math.sin(s * HDG[3][1] + HDG[3][2]));
+const roadCurve = s => BEND * (
+    HDG[0][0] * HDG[0][1] * Math.cos(s * HDG[0][1] + HDG[0][2])
+  + HDG[1][0] * HDG[1][1] * Math.cos(s * HDG[1][1] + HDG[1][2])
+  + HDG[2][0] * HDG[2][1] * Math.cos(s * HDG[2][1] + HDG[2][2])
+  + HDG[3][0] * HDG[3][1] * Math.cos(s * HDG[3][1] + HDG[3][2]));
 const elevation = s =>
   7 * Math.sin(s * 0.0021 + 1) + 4 * Math.sin(s * 0.0049 + 2) + 14 * Math.sin(s * 0.0008) + 1.5 * Math.sin(s * 0.011);
 
@@ -294,7 +324,11 @@ const gen = { x: 0, z: 0, heading: 0 };
 function ensurePoints(n) {
   while (pts.length <= n) {
     const i = pts.length, s = i * SEG;
-    gen.heading += roadCurve(s) * SEG;
+    // Read, not integrated. Integrating roadCurve would give the same road to
+    // within rounding, but only the same road — the bound that stops it looping
+    // is a property of the heading FUNCTION, and a drifting accumulator is
+    // exactly how you lose it a hundred kilometres in.
+    gen.heading = roadHeading(s);
     gen.x += Math.sin(gen.heading) * SEG;
     gen.z -= Math.cos(gen.heading) * SEG;
     pts.push({ x: gen.x, y: elevation(s), z: gen.z, heading: gen.heading });
@@ -351,6 +385,19 @@ function lanesAt(s) {
   // A one-way road has no other carriageway at all: every lane the block was
   // going to give both directions goes to yours, and never fewer than three.
   if (TERRAIN[terrainIndex].oneWay) { lanes.r = Math.max(3, lanes.l + lanes.r); lanes.l = 0; }
+  // And a village pinches it back in. Nowhere in Europe is a five-lane road, and
+  // the houses that front it stand eight metres from the kerb — the two together
+  // read as a bypass with a film set beside it. This is the same widening
+  // machinery run backwards, and it is what makes you lift coming into a place.
+  // In a city builtUp is 1 everywhere by definition, and a city of single-track
+  // streets is not what that number means.
+  else if (!TERRAIN[terrainIndex].city) {
+    const v = builtUp(s);
+    if (v > 0.02) {
+      lanes.l = lanes.l - (lanes.l - 1) * v * 0.9;
+      lanes.r = lanes.r - (lanes.r - 1) * v * 0.9;
+    }
+  }
   return lanes;
 }
 // Where the two carriageways are separated by a barrier rather than by paint.
@@ -374,40 +421,60 @@ let RELIEF = 1;
 // would otherwise have hills growing through the outside lane.
 function terrainY(roadY, x, z, absd, edge) {
   const beyond = Math.max(0, absd - edge);
-  const t = smoothstep(2, 47, beyond) * RELIEF;
+  const t = smoothstep(3, 60, beyond) * RELIEF;
   const n0 = vnoise(x * 0.0013, z * 0.0013);   // hills
   const n2 = vnoise(x * 0.0040, z * 0.0040);   // folds
   const n1 = vnoise(x * 0.0200, z * 0.0200);   // hummocks
   const n3 = vnoise(x * 0.0900, z * 0.0900);   // scrub-scale roughness
-  const relief = (n0 - 0.5) * 2 * (9 + beyond * 0.36)
-               + (n2 - 0.5) * 2 * (5 + beyond * 0.15)
+  // Square root, not linear. Linear growth put a 280 m amplitude on the outer
+  // ring, which is not a hill but the Eiger, drawn at a resolution of one vertex
+  // every 230 m and therefore rendered as a triangular slab. The root reaches
+  // most of its height by the middle distance — where the eye actually reads
+  // landform — and then settles, so the far ridges sit in the fog and end the
+  // view instead of towering out of the top of the frame.
+  const far = Math.sqrt(beyond / 760);
+  const relief = (n0 - 0.5) * 2 * (7 + 94 * far)
+               + (n2 - 0.5) * 2 * (4 + 27 * far)
                + (n1 - 0.5) * 4.5 + (n3 - 0.5) * 1.2;
   return roadY + t * relief - 0.45 * smoothstep(0, 5, beyond);
 }
 
 // project a world point onto the road frame; returns ground height, lateral offset, arc length
 function probe(x, z, sHint) {
-  let p = getPose(sHint);
-  for (let k = 0; k < 2; k++) {
+  let s = Math.max(0, sHint), p = getPose(s);
+  let best = s, bestD2 = (x - p.x) ** 2 + (z - p.z) ** 2;
+  // Newton on the projection, and every step has to EARN its place: it is only
+  // kept if it actually got NEARER the query point. That guard is the whole
+  // difference between a search and a stampede. Take a point a few hundred
+  // metres off the road — the car, out on the moor — and the raw step is the
+  // forward component of a very long offset, which can be hundreds of metres and
+  // can point the other way on the next iteration. The old version clamped the
+  // step and ran twice, which bounded the damage at 90 m of arc length per frame
+  // and did not stop it: sEst walked away at five kilometres a second, carChunk
+  // walked with it, and the streamer tore down and rebuilt every chunk in the
+  // world every single frame — which, from the driver's seat, looks exactly like
+  // the game restarting itself. Best-of-four cannot do that. The worst it can do
+  // is fail to improve, which leaves sEst exactly where it was.
+  for (let k = 0; k < 4; k++) {
     const fx = Math.sin(p.heading), fz = -Math.cos(p.heading);
-    // Clamped, and the clamp is what makes this a LOCAL search rather than a
-    // global one. The road curves back near itself over a few kilometres, so a
-    // point far off it can project onto several arc lengths at once — and the
-    // raw Newton step will happily jump between them from one frame to the
-    // next. sEst then teleports, carChunk teleports with it, and the streamer
-    // tears down and rebuilds every chunk in the world, every single frame.
-    // Nothing legitimate moves more than a metre of arc length per frame.
-    const step = clamp((x - p.x) * fx + (z - p.z) * fz, -45, 45);
-    sHint = Math.max(0, sHint + step);
-    p = getPose(sHint);
+    s = Math.max(0, s + clamp((x - p.x) * fx + (z - p.z) * fz, -18, 18));
+    p = getPose(s);
+    const d2 = (x - p.x) ** 2 + (z - p.z) ** 2;
+    if (d2 < bestD2) { bestD2 = d2; best = s; }
   }
+  s = best; p = getPose(s);
   const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
   const d = (x - p.x) * rx + (z - p.z) * rz;
   const ad = Math.abs(d);
-  const L = lanesAt(sHint);
+  const L = lanesAt(s);
   const el = L.l * LANE_W, er = L.r * LANE_W, edge = d < 0 ? el : er;
-  const y = terrainY(p.y, x, z, ad, edge) + 0.07 * (1 - smoothstep(edge, edge + 1.5, ad));
-  return { y, d, s: sHint, el, er };
+  // groundAt, not terrainY. The formula's height at a point and the height of
+  // the MESH at that point are two different numbers — the rings are up to
+  // 230 m apart out there and the surface between them is a flat triangle, so
+  // the formula can sit several metres above or below what is actually drawn.
+  // Driving on the formula is what put the car inside the hillside.
+  const y = groundAt(s, d < 0 ? -1 : 1, ad) + 0.07 * (1 - smoothstep(edge, edge + 1.5, ad));
+  return { y, d, s, el, er };
 }
 
 // ================= renderer =================
@@ -761,12 +828,12 @@ const markMat = new THREE.MeshLambertMaterial({
 // overtake — round bends and over crests — so which one you get comes straight
 // out of the spline's own curvature and the second difference of its elevation
 // rather than out of a random number. It works out at roughly 60% dashed and a
-// change every 470 m or so. Quantised into 36 m blocks, because a centre line
+// change every 250 m or so. Quantised into 36 m blocks, because a centre line
 // that changed type every few metres would read as a glitch rather than a road.
 const centreDashed = s => {
   const q = Math.floor(s / 36) * 36 + 18;
   const crest = elevation(q - 90) - 2 * elevation(q) + elevation(q + 90);   // negative over a brow
-  return Math.abs(roadCurve(q)) < 0.0026 && crest > -1.0;
+  return Math.abs(roadCurve(q)) < 0.0021 && crest > -1.0;
 };
 
 // A tiling mottle for the open ground. Vertex colours alone leave the terrain
@@ -867,6 +934,197 @@ function buildingBox(w, h, d, tint) {
   return g;
 }
 
+// ---- villages ----
+// The city's facade is a grid of office windows, and a village built out of it
+// looks like a city that has been shrunk. A village is a different building: two
+// storeys, a window either side of a door, shutters, and — the part that
+// actually does the work — a steep tiled roof. You read a European village from
+// four hundred metres away off a run of terracotta pitches against a hillside,
+// and not at all off anything at ground level, so the roof gets its own texture
+// and the walls get one with three windows across it instead of eight.
+const COTTAGE_TILE = 10.4;           // 4 bays of 2.6 m
+function makeCottage() {
+  const S = 256, n = 4, cell = S / n;
+  const lit = [];
+  for (let i = 0; i < n * n; i++) lit.push(hash2(i * 11 + 2, i * 19 + 7) > 0.55);
+  // one shutter colour per village-ish column: the whole street tends to agree
+  const shut = ['#4a5b45', '#5a4438', '#3f4d5c', '#6b5433'];
+  const draw = glow => {
+    const c = document.createElement('canvas');
+    c.width = c.height = S;
+    const g = c.getContext('2d');
+    g.fillStyle = glow ? '#000000' : '#cfc4b0';
+    g.fillRect(0, 0, S, S);
+    if (!glow) {                       // render, laid on by hand and patchy with it
+      for (let i = 0; i < 1400; i++) {
+        const x = Math.random() * S, y = Math.random() * S;
+        g.fillStyle = `rgba(${Math.random() < 0.5 ? '255,250,240' : '150,138,120'},.10)`;
+        g.fillRect(x, y, 3 + Math.random() * 9, 2 + Math.random() * 5);
+      }
+    }
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+      const on = lit[y * n + x];
+      const wx = x * cell + cell * 0.34, wy = y * cell + cell * 0.26;
+      const ww = cell * 0.32, wh = cell * 0.40;
+      if (glow) {
+        if (!on) continue;
+        g.fillStyle = '#ffcf8e';
+        g.fillRect(wx, wy, ww, wh);
+        continue;
+      }
+      g.fillStyle = '#5d5346';                                  // reveal
+      g.fillRect(wx - 2, wy - 2, ww + 4, wh + 4);
+      // Glass is DARK in the base map whether the room behind it is lit or not,
+      // and the warm rectangle lives only in the emissive map. The city facade
+      // paints its lit windows pale in both, which is right for a tower at dusk
+      // and wrong for a cottage at nine in the morning — every village came out
+      // with its lights on in full sun.
+      const gl = g.createLinearGradient(0, wy, 0, wy + wh);
+      gl.addColorStop(0, '#59636e');                            // sky in the top pane
+      gl.addColorStop(1, '#23272c');
+      g.fillStyle = gl;
+      g.fillRect(wx, wy, ww, wh);
+      g.fillStyle = '#e8e2d6';                                  // glazing bars
+      g.fillRect(wx + ww / 2 - 1, wy, 2, wh);
+      g.fillRect(wx, wy + wh / 2 - 1, ww, 2);
+      g.fillStyle = shut[x];                                    // shutters, folded back
+      g.fillRect(wx - cell * 0.16, wy - 2, cell * 0.13, wh + 4);
+      g.fillRect(wx + ww + cell * 0.03, wy - 2, cell * 0.13, wh + 4);
+      g.fillStyle = '#b8ac96';                                  // sill
+      g.fillRect(wx - 4, wy + wh + 2, ww + 8, 3);
+    }
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    return t;
+  };
+  return { map: draw(false), glow: draw(true) };
+}
+// Pantiles: rows of half-round clay, which is the one detail that has to survive
+// being seen from three hundred metres, so it is drawn as bold light-and-shade
+// bands rather than as tiles. One tile of this is 1.6 m of roof.
+const ROOF_TILE = 1.6;
+function makeRoofTexture() {
+  const S = 128, rows = 5, cols = 8;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d');
+  g.fillStyle = '#8a4a32';
+  g.fillRect(0, 0, S, S);
+  const rh = S / rows, cw = S / cols;
+  for (let r = 0; r < rows; r++) for (let k = 0; k < cols; k++) {
+    const x = k * cw + (r % 2 ? cw * 0.5 : 0), y = r * rh;
+    const lg = g.createLinearGradient(x, 0, x + cw, 0);
+    lg.addColorStop(0, 'rgba(0,0,0,.30)');
+    lg.addColorStop(0.42, 'rgba(255,190,150,.22)');
+    lg.addColorStop(1, 'rgba(0,0,0,.26)');
+    g.fillStyle = lg;
+    g.fillRect(x, y, cw, rh);
+    g.fillStyle = 'rgba(30,10,6,.34)';                          // the lap below each course
+    g.fillRect(x - cw, y + rh - 2, cw * 3, 2);
+    if (hash2(r * 3 + 1, k * 5 + 2) > 0.72) {                   // weathered tiles
+      g.fillStyle = 'rgba(90,105,70,.20)';
+      g.fillRect(x, y, cw, rh - 2);
+    }
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return t;
+}
+const cottage = makeCottage();
+const cottageMat = new THREE.MeshLambertMaterial({
+  map: cottage.map, emissiveMap: cottage.glow, emissive: 0xffffff,
+  emissiveIntensity: 0.9, vertexColors: true,
+});
+const roofMat = new THREE.MeshLambertMaterial({ map: makeRoofTexture(), vertexColors: true });
+const hedgeMat = new THREE.MeshLambertMaterial({ color: 0x3c4a26, flatShading: true });
+// Dry stone, and it has to be a good deal darker and browner than the kerbs a
+// city is made of: a field wall is weathered limestone with lichen on it, and at
+// kerb grey it read as three hundred metres of crash barrier.
+const dryStoneMat = new THREE.MeshLambertMaterial({ color: 0x5b554b, flatShading: true });
+
+// Triangle-soup builder. The house parts are not boxes and not extrusions, and
+// writing them out as vertices is both shorter and far easier to read than
+// bending a BoxGeometry into a gable would be.
+function soup() {
+  const pos = [], uv = [], col = [];
+  return {
+    // Four corners, counter-clockwise from the texture origin, plus the size in
+    // metres the texture should span across each axis of the quad.
+    quad(a, b, c, d, us, vs, tint) {
+      const n = pos.length / 3;
+      for (const p of [a, b, c, d]) pos.push(p[0], p[1], p[2]);
+      uv.push(0, 0, us, 0, us, vs, 0, vs);
+      for (let i = 0; i < 4; i++) col.push(tint.r, tint.g, tint.b);
+      this.idx.push(n, n + 1, n + 2, n, n + 2, n + 3);
+      return this;
+    },
+    tri(a, b, c, us, vs, tint) {
+      const n = pos.length / 3;
+      for (const p of [a, b, c]) pos.push(p[0], p[1], p[2]);
+      uv.push(0, 0, us, 0, us * 0.5, vs);
+      for (let i = 0; i < 3; i++) col.push(tint.r, tint.g, tint.b);
+      this.idx.push(n, n + 1, n + 2);
+      return this;
+    },
+    idx: [],
+    build() {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+      g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uv), 2));
+      g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(col), 3));
+      g.setIndex(this.idx);
+      g.computeVertexNormals();
+      return g;
+    },
+  };
+}
+
+// One house, built at the origin with the ridge running along X and the road
+// off to -Z. Returns the walls and the roof separately because they are two
+// materials; the caller merges each pile per chunk.
+// `rise` is the height of the ridge above the eaves — 0.5 of the half-depth is
+// a 45-degree pitch, which is where northern Europe lives because of the snow.
+function villageHouse(w, h, d, rise, wall, roofCol) {
+  const W = w / 2, D = d / 2, OW = W + 0.28, OD = D + 0.34;   // eaves overhang
+  const s = soup(), r = soup();
+  const uw = w / COTTAGE_TILE, ud = d / COTTAGE_TILE, uh = h / COTTAGE_TILE;
+  // four walls, from the ground to the eaves
+  s.quad([-W, 0, D], [W, 0, D], [W, h, D], [-W, h, D], uw, uh, wall);
+  s.quad([W, 0, -D], [-W, 0, -D], [-W, h, -D], [W, h, -D], uw, uh, wall);
+  s.quad([W, 0, D], [W, 0, -D], [W, h, -D], [W, h, D], ud, uh, wall);
+  s.quad([-W, 0, -D], [-W, 0, D], [-W, h, D], [-W, h, -D], ud, uh, wall);
+  // the gable above each end wall
+  s.tri([W, h, D], [W, h, -D], [W, h + rise, 0], ud, rise / COTTAGE_TILE, wall);
+  s.tri([-W, h, -D], [-W, h, D], [-W, h + rise, 0], ud, rise / COTTAGE_TILE, wall);
+  // and the two pitches over the top, tiled in metres of slope
+  const slope = Math.hypot(OD, rise) / ROOF_TILE, along = w / ROOF_TILE;
+  r.quad([-OW, h - 0.12, OD], [OW, h - 0.12, OD], [OW, h + rise, 0], [-OW, h + rise, 0], along, slope, roofCol);
+  r.quad([OW, h - 0.12, -OD], [-OW, h - 0.12, -OD], [-OW, h + rise, 0], [OW, h + rise, 0], along, slope, roofCol);
+  return { walls: s.build(), roof: r.build() };
+}
+
+// The church is what makes a village a place rather than a row of houses: a
+// tower you can see from the far side of the valley, and a spire on top of it.
+function villageChurch(wall, roofCol) {
+  const s = soup(), r = soup();
+  const nave = villageHouse(14, 6.2, 8.5, 3.6, wall, roofCol);   // ridge along the street
+  const T = 2.3, th = 15.5, sp = 7.5;      // tower half-width, height, spire
+  const tw = th / COTTAGE_TILE, tu = (T * 2) / COTTAGE_TILE;
+  for (const [ax, az] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
+    const nx = -az, nz = ax;               // the wall's own in-plane axis
+    s.quad([ax * T - nx * T, 0, az * T - nz * T], [ax * T + nx * T, 0, az * T + nz * T],
+           [ax * T + nx * T, th, az * T + nz * T], [ax * T - nx * T, th, az * T - nz * T], tu, tw, wall);
+    // and the spire face above it, leaning in to a point
+    r.tri([ax * T + nx * T, th, az * T + nz * T], [ax * T - nx * T, th, az * T - nz * T],
+          [0, th + sp, 0], (T * 2) / ROOF_TILE, sp / ROOF_TILE, roofCol);
+  }
+  return { nave, tower: s.build(), spire: r.build() };
+}
+
 // soft radial blob, reused for the contact shadow and the skid marks
 function makeBlobTexture(inner, outer) {
   const c = document.createElement('canvas');
@@ -914,6 +1172,40 @@ const chunks = new Map();
 // on a road that changes width. The near ones are tight because that is where the
 // cutting reads; the far ones only exist to give the fog a horizon.
 const OFFS = [0, 0.6, 2, 4.5, 9, 19, 37, 73, 130, 220, 345, 525, 755];
+
+// ---- which way the fan points ----
+// Every ring is swept along the road, and the obvious sweep direction is the
+// road's own normal. Past a hundred metres or so that is wrong, and visibly so:
+// through a 260 m corner the rings on the inside all aim at the centre of the
+// turn, pile up on each other and then cross straight through it, so the far
+// hillside is pleated into a rosette of creases that swings about as you drive —
+// and the ring that has crossed over comes out the far side of the road and
+// lands on the carriageway.
+//
+// So the further out a ring is, the straighter it runs. Each heading term is
+// rolled off separately, and its corner is set by the only quantity that
+// matters: how much bend that term can put into the fan. A term of amplitude A
+// and frequency w bends the fan by about A*w*D over a reach D, and holding each
+// of the four to FAN_K radians holds the whole fan well inside the fold. Near
+// the road nothing changes — the slowest term is still at 0.98 out at 130 m — so
+// the verge, the shoulder and the cutting follow the road exactly, which is the
+// entire reason the terrain is built as rings and not as a grid.
+const FAN_K = 0.30;
+let FANLP = [];
+// Rebuilt whenever BEND changes: an autobahn bends a tenth as hard, so its fan
+// can follow the road ten times further out before it needs straightening.
+const rebuildFan = () =>
+  FANLP = OFFS.map(D => HDG.map(([A, w]) => 1 / (1 + (D * BEND * A * w / FAN_K) ** 2)));
+const fanHeading = (s, j) => {
+  const lp = FANLP[j];
+  return BEND * (
+      HDG[0][0] * Math.sin(s * HDG[0][1] + HDG[0][2]) * lp[0]
+    + HDG[1][0] * Math.sin(s * HDG[1][1] + HDG[1][2]) * lp[1]
+    + HDG[2][0] * Math.sin(s * HDG[2][1] + HDG[2][2]) * lp[2]
+    + HDG[3][0] * Math.sin(s * HDG[3][1] + HDG[3][2]) * lp[3]);
+};
+rebuildFan();
+
 const vergeCol = new THREE.Color(0x63702f);    // mown grass at the road edge
 const gravelCol = new THREE.Color(0x6f6553);   // shoulder
 const scrubCol = new THREE.Color(0x3d2a1e);    // dark heather
@@ -942,16 +1234,39 @@ function groundAt(s, side, dist) {
   const tj = clamp((beyond - OFFS[j]) / (OFFS[j + 1] - OFFS[j]), 0, 1);
   let h = 0;
   for (let a = 0; a < 2; a++) {
-    const p = pts[k0 + a];
-    const e = edgeAt((k0 + a) * SEG, side);
-    const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
+    const p = pts[k0 + a], sr = (k0 + a) * SEG;
+    const e = edgeAt(sr, side);
     for (let b = 0; b < 2; b++) {
-      const off = e + OFFS[j + b];
-      const x = p.x + rx * side * off, z = p.z + rz * side * off;
+      // fanHeading, not p.heading — these have to be the four vertices the
+      // triangle is actually made of, and out past a couple of hundred metres
+      // those are not where the road's normal would put them
+      const fh = fanHeading(sr, j + b), off = e + OFFS[j + b];
+      const x = p.x + Math.cos(fh) * side * off, z = p.z + Math.sin(fh) * side * off;
       h += terrainY(p.y, x, z, off, e) * (a ? tk : 1 - tk) * (b ? tj : 1 - tj);
     }
   }
   return h;
+}
+// Where a point on the terrain actually IS. Ring space — arc length, which side,
+// how far out — is how everything on the ground is placed, and turning that back
+// into world x/z means going through the fan rather than stepping along the
+// road's normal, or anything more than a hundred metres out is planted somewhere
+// the ground is not. Returns a shared object: read it before calling again.
+const fanPt = { x: 0, y: 0, z: 0 };
+function fanPoint(s, side, dist) {
+  const p = getPose(s), e = edgeAt(s, side);
+  const beyond = Math.max(0, dist - e);
+  let j = 0;
+  while (j < OFFS.length - 2 && OFFS[j + 1] < beyond) j++;
+  const tj = clamp((beyond - OFFS[j]) / (OFFS[j + 1] - OFFS[j]), 0, 1);
+  const ha = fanHeading(s, j), hb = fanHeading(s, j + 1);
+  const da = side * (e + OFFS[j]), db = side * (e + OFFS[j + 1]);
+  const ax = p.x + Math.cos(ha) * da, az = p.z + Math.sin(ha) * da;
+  const bx = p.x + Math.cos(hb) * db, bz = p.z + Math.sin(hb) * db;
+  fanPt.x = ax + (bx - ax) * tj;
+  fanPt.z = az + (bz - az) * tj;
+  fanPt.y = groundAt(s, side, dist);
+  return fanPt;
 }
 // How built up the roadside is here. In the city it never lets up; out on the
 // moor you come through something every few kilometres. Passing THROUGH places
@@ -959,6 +1274,34 @@ function groundAt(s, side, dist) {
 const builtUp = s => TERRAIN[terrainIndex].city ? 1
   : TERRAIN[terrainIndex].forest ? 0                  // completely wild
   : smoothstep(0.665, 0.80, vnoise(s * 0.0014, 7.3));
+
+// How FARMED the country is here, on the same slow function of arc length that
+// decides how wooded it is. This is the single biggest thing about the view: at
+// 0 you are on open moor, heather and bracken and loose stone, and at 1 you are
+// running through a patchwork of fields with a hedge on every boundary. Driving
+// out of one into the other every few kilometres is most of what makes a long
+// drive feel like going somewhere.
+const farmAt = band => TERRAIN[terrainIndex].forest || TERRAIN[terrainIndex].city
+  ? 0 : smoothstep(0.36, 0.60, band);
+// The crops. Deliberately close together in value and far apart in hue: a real
+// patchwork is not a colour wheel, it is nine shades of the same green with two
+// fields of rape and one of turned earth in the middle of it.
+const CROPS = [
+  new THREE.Color(0x707d3c), new THREE.Color(0x8c8544), new THREE.Color(0x9d8d4c),
+  new THREE.Color(0x6a5a41), new THREE.Color(0x7e8a3e), new THREE.Color(0xa79c48),
+  new THREE.Color(0x5f7038), new THREE.Color(0x94904e),
+];
+// Which field a point on the terrain belongs to. Fields are laid out in ring
+// space — a block of arc length by a band of rings — because that is the grid
+// the mesh is already built on, so a boundary lands exactly on a row of vertices
+// and comes out as an edge rather than a gradient. FIELD_BLK is the length of a
+// field along the road; the bands are the ring gaps themselves, which is why the
+// hedges below can simply be run along a ring.
+const FIELD_BLK = 132;
+const fieldOf = (s, side, j) => {
+  const b = Math.floor(s / FIELD_BLK) + (j > 6 ? 3 : 0);   // far fields are not the near ones
+  return hash2(b * 13.7 + side * 5.1 + j * 3.3, j * 7.9 - side * 2.2);
+};
 
 function buildChunk(ci) {
   const i0 = ci * CHUNK;
@@ -1108,41 +1451,99 @@ function buildChunk(ci) {
   }
 
   { // terrain, one ribbon per side, measured out from the edge of the tarmac
-    const tmp = new THREE.Color();
+    // Two passes, and the reason is the fields. A field has a hard edge — that
+    // is the entire visual idea of farmed country — and a hard edge needs the
+    // vertices along it to carry two different colours at once, so every ring
+    // has to exist twice, once for the band inside it and once for the band
+    // outside. Split geometry shaded on its own, though, creases at every one of
+    // those seams. So: lay the fan out ONCE on a shared grid and let three.js
+    // work the normals out across it, then split it and carry those normals
+    // over. Smooth ground, hard field edges, one mesh.
+    const tmp = new THREE.Color(), crop = new THREE.Color();
+    const cols = OFFS.length, bands = cols - 1, wide = bands * 2;
     for (const side of [-1, 1]) {
-      const cols = OFFS.length;
-      const pos = new Float32Array(n * cols * 3), col = new Float32Array(n * cols * 3);
-      const uv = new Float32Array(n * cols * 2), idx = [];
+      const sp = new Float32Array(n * cols * 3), sidx = [];
       for (let k = 0; k < n; k++) {
         const p = pts[i0 + k];
-        const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
         const edge = side < 0 ? eL(k) : eR(k);
         for (let j = 0; j < cols; j++) {
-          const d = side * (edge + OFFS[j]), x = p.x + rx * d, z = p.z + rz * d;
+          const fh = fanHeading(sAt(k), j);
+          const d = side * (edge + OFFS[j]);
+          const x = p.x + Math.cos(fh) * d, z = p.z + Math.sin(fh) * d;
           const o = (k * cols + j) * 3;
-          pos[o] = x; pos[o + 1] = terrainY(p.y, x, z, edge + OFFS[j], edge); pos[o + 2] = z;
-          // The detail texture is mapped straight off world x/z at 9 m a tile,
-          // so it stays put on the ground however the ribbon is shaped.
-          uv[(k * cols + j) * 2] = x / 9; uv[(k * cols + j) * 2 + 1] = z / 9;
-          // two noise scales: broad heather/bracken patches, then a finer mottle
-          tmp.lerpColors(scrubCol, dryCol, vnoise(x * 0.012, z * 0.012));
-          tmp.lerp(sageCol, vnoise(x * 0.05, z * 0.05) * 0.5);
-          if (OFFS[j] < 1.3) tmp.lerp(gravelCol, 0.7);
-          else if (OFFS[j] < 3.1) tmp.lerp(vergeCol, 0.6);
-          else if (OFFS[j] < 6.1) tmp.lerp(vergeCol, 0.25);
-          tmp.multiplyScalar(1 / GROUND_MEAN);   // give back what the mottle takes
-          col[o] = tmp.r; col[o + 1] = tmp.g; col[o + 2] = tmp.b;
+          sp[o] = x; sp[o + 1] = terrainY(p.y, x, z, edge + OFFS[j], edge); sp[o + 2] = z;
           if (k < n - 1 && j < cols - 1) {
             const a = k * cols + j;
-            idx.push(a, a + 1, a + cols, a + 1, a + cols + 1, a + cols);
+            sidx.push(a, a + 1, a + cols, a + 1, a + cols + 1, a + cols);
+          }
+        }
+      }
+      const shared = new THREE.BufferGeometry();
+      shared.setAttribute('position', new THREE.BufferAttribute(sp, 3));
+      shared.setIndex(sidx);
+      shared.computeVertexNormals();
+      const sn = shared.attributes.normal.array;
+      shared.dispose();
+
+      const pos = new Float32Array(n * wide * 3), nrm = new Float32Array(n * wide * 3);
+      const col = new Float32Array(n * wide * 3), uv = new Float32Array(n * wide * 2);
+      const idx = [];
+      for (let k = 0; k < n; k++) {
+        // Sampled per ROW, not once per chunk: the chunk-wide `band` below is
+        // fine for deciding how many trees to plant, but painted into vertex
+        // colours it would put a visible step across the ground at every chunk
+        // seam. This is the same function read 61 times instead of once.
+        const farm = farmAt(vnoise(sAt(k) * 0.00021, 3.1));
+        for (let b = 0; b < bands; b++) {
+          // Is this band a field, or is it the verge? The first few rings are
+          // the road's own edge — gravel into mown grass into whatever grows
+          // there — and that has to stay a smooth gradient, so those bands keep
+          // reading their colour per ring. Everything from 9 m out is a field.
+          // 19 m out, not 9. The first band past the verge is what you actually
+          // drive alongside for hours, and one flat colour filling the bottom
+          // third of the screen is paint however good the patchwork behind it
+          // is. That band stays rough grass; the fields start at the first wall.
+          const isField = farm > 0.01 && OFFS[b] >= 15;
+          if (isField) {
+            // Read at the MIDDLE of the band, so both of its columns agree and
+            // the field comes out one flat colour with an edge on each side.
+            const mx = (sp[(k * cols + b) * 3] + sp[(k * cols + b + 1) * 3]) / 2;
+            const mz = (sp[(k * cols + b) * 3 + 2] + sp[(k * cols + b + 1) * 3 + 2]) / 2;
+            crop.copy(CROPS[Math.floor(fieldOf(sAt(k), side, b) * CROPS.length) % CROPS.length]);
+            // Every field is worked slightly unevenly, and without this the flat
+            // paint is more obvious than the patchwork it is supposed to be.
+            crop.multiplyScalar(0.86 + vnoise(mx * 0.028, mz * 0.028) * 0.28);
+          }
+          for (let e = 0; e < 2; e++) {
+            const j = b + e, from = k * cols + j, to = k * wide + b * 2 + e;
+            pos[to * 3] = sp[from * 3]; pos[to * 3 + 1] = sp[from * 3 + 1]; pos[to * 3 + 2] = sp[from * 3 + 2];
+            nrm[to * 3] = sn[from * 3]; nrm[to * 3 + 1] = sn[from * 3 + 1]; nrm[to * 3 + 2] = sn[from * 3 + 2];
+            const x = sp[from * 3], z = sp[from * 3 + 2];
+            // The detail texture is mapped straight off world x/z at 9 m a tile,
+            // so it stays put on the ground however the ribbon is shaped.
+            uv[to * 2] = x / 9; uv[to * 2 + 1] = z / 9;
+            // two noise scales: broad heather/bracken patches, then a finer mottle
+            tmp.lerpColors(scrubCol, dryCol, vnoise(x * 0.012, z * 0.012));
+            tmp.lerp(sageCol, vnoise(x * 0.05, z * 0.05) * 0.5);
+            if (isField) tmp.lerp(crop, farm * 0.80);
+            else if (OFFS[j] < 1.3) tmp.lerp(gravelCol, 0.7);
+            else if (OFFS[j] < 3.1) tmp.lerp(vergeCol, 0.6);
+            else if (OFFS[j] < 6.1) tmp.lerp(vergeCol, 0.25);
+            tmp.multiplyScalar(1 / GROUND_MEAN);   // give back what the mottle takes
+            col[to * 3] = tmp.r; col[to * 3 + 1] = tmp.g; col[to * 3 + 2] = tmp.b;
+          }
+          if (k < n - 1) {
+            const a = k * wide + b * 2;
+            idx.push(a, a + 1, a + wide, a + 1, a + wide + 1, a + wide);
           }
         }
       }
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      geo.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
       geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
       geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-      geo.setIndex(idx); geo.computeVertexNormals();
+      geo.setIndex(idx);
       group.add(new THREE.Mesh(geo, terrainMat));
     }
   }
@@ -1156,32 +1557,122 @@ function buildChunk(ci) {
   // turns over about every five kilometres, which is far enough apart that you
   // notice having arrived somewhere different rather than watching it change.
   const band = vnoise(sAt(0) * 0.00021, 3.1);
+  const FARM = farmAt(band);
+
+  if (FARM > 0.12 && !CITY && !FOREST) {
+    // The boundaries. A patchwork painted on flat ground is wallpaper; what
+    // makes farmed country read as farmed is that every field edge stands up —
+    // a hedge you cannot see over, or a wall of dry stone where the soil ran
+    // out. They are run along the terrain rings and across them at the field
+    // blocks, which is exactly where the colour changes, so the geometry and the
+    // paint agree without either of them knowing the other exists.
+    const hedges = [], walls = [];
+    // 19, 37, 73, 130 and 220 m out. Not the 9 m ring: a road has a verge before
+    // the first field starts, and a wall that close reads as a crash barrier
+    // rather than as the edge of somebody's land.
+    const RINGS = [5, 6, 7, 8, 9];
+    const piece = (ax, ay, az, bx, by, bz, thick, tall, into, hit) => {
+      const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz);
+      if (len < 0.5) return;
+      // a shade longer than the gap, so nothing opens up at the joints
+      // Wobbled a few centimetres per length, so the top is a line somebody
+      // built rather than a line somebody extruded.
+      const t2 = tall * (0.88 + hash2(Math.round(ax * 0.7), Math.round(az * 0.7)) * 0.24);
+      const g = new THREE.BoxGeometry(len + thick, t2, thick);
+      g.rotateY(Math.atan2(-dz, dx));
+      g.translate((ax + bx) / 2, (ay + by) / 2 + t2 / 2 - 0.55, (az + bz) / 2);
+      into.push(g);
+      // Only the two boundaries nearest the road are things you can hit, and
+      // they are soft: a hedge tears the paint off and slows you right down, it
+      // does not stop a car dead. Made of circles along the run rather than one
+      // box, because the collision list is walked every frame and a handful of
+      // cheap tests beats an exact one for something you brush past sideways.
+      if (!hit) return;
+      const n = Math.max(1, Math.round(len / 3.5));
+      for (let i = 0; i < n; i++) {
+        const t = (i + 0.5) / n;
+        solids.push({ x: ax + dx * t, z: az + dz * t, r: 1.5, soft: 1 });
+      }
+    };
+    for (const side of [-1, 1]) for (const j of RINGS) {
+      const D = OFFS[j];
+      // Stone up on the thin ground, hedge down in the fields — which is what
+      // the amount of relief already says, so it comes from there.
+      const stone = hash2(j * 4.7 + side * 3.1, 91.3) > 0.62;
+      const into = stone ? walls : hedges;
+      // Chest high for stone, over your head for a hedge, and both of them grow
+      // with distance for the same reason the gorse does: a 1.2 m wall is two
+      // pixels at 200 m and simply stops being there.
+      const tall = (stone ? 0.85 : 1.5 + hash2(j, side * 2 + 5) * 0.8) * (1 + D * 0.004);
+      const step = Math.max(9, D * 0.16);
+      let prev = null;
+      for (let sPos = sAt(0); sPos <= sAt(CHUNK) + step * 0.5; sPos += step) {
+        const s = Math.min(sPos, sAt(CHUNK));
+        // A boundary runs in field-block-long stretches with gates and gaps
+        // between them, and it gives way entirely wherever a village does.
+        const blk = Math.floor(s / FIELD_BLK);
+        const on = hash2(blk * 6.1 + j * 2.9, side * 11.7 + 3.4) > 0.30
+                   && (D > 90 || builtUp(s) < 0.25);
+        const g = fanPoint(s, side, edgeAt(s, side) + D);
+        const here = on ? { x: g.x, y: g.y, z: g.z } : null;
+        if (prev && here) piece(prev.x, prev.y, prev.z, here.x, here.y, here.z,
+                                stone ? 0.5 : 1.1, tall, into, j <= 5);
+        prev = here;
+      }
+      // and the boundary that closes the field off at each end of the block
+      if (j < RINGS[RINGS.length - 1]) {
+        const first = Math.ceil(sAt(0) / FIELD_BLK) * FIELD_BLK;
+        for (let s = first; s < sAt(CHUNK); s += FIELD_BLK) {
+          if (hash2(Math.floor(s / FIELD_BLK) * 3.7 + j, side * 8.3) < 0.42) continue;
+          if (D < 90 && builtUp(s) > 0.25) continue;
+          const D2 = OFFS[j + 1], across = Math.max(3, (D2 - D) / Math.ceil((D2 - D) / 14));
+          let prv = null;
+          for (let d = D; d <= D2 + 0.01; d += across) {
+            const g = fanPoint(s, side, edgeAt(s, side) + Math.min(d, D2));
+            if (prv) piece(prv.x, prv.y, prv.z, g.x, g.y, g.z, stone ? 0.5 : 1.1, tall, into);
+            prv = { x: g.x, y: g.y, z: g.z };
+          }
+        }
+      }
+    }
+    if (hedges.length) group.add(new THREE.Mesh(mergeGeos(hedges), hedgeMat));
+    if (walls.length) group.add(new THREE.Mesh(mergeGeos(walls), dryStoneMat));
+  }
 
   if (!CITY) { // scrub — the whole chunk's vegetation in one draw call
-    const im = new THREE.InstancedMesh(bushGeo, bushMat, FOREST ? BUSHES + 260 : BUSHES);
+    // Gorse grows where nothing else will. A ploughed field has none of it, and
+    // leaving the moorland scatter running through the farmland was the single
+    // thing stopping the fields reading as fields: a patchwork with boulders and
+    // heather strewn over it is not a patchwork, it is a moor that has been
+    // painted green. So the whole moorland kit — scrub, loose stone, boulders —
+    // thins out as the country becomes farmed, and the hedges take over.
+    const SCRUB = Math.round((FOREST ? BUSHES + 260 : BUSHES) * (1 - FARM * 0.88));
+    const im = new THREE.InstancedMesh(bushGeo, bushMat, Math.max(1, SCRUB));
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
     const sc = new THREE.Vector3(), p3 = new THREE.Vector3(), col = new THREE.Color();
     for (let b = 0; b < im.count; b++) {
-      const ki = Math.floor(rnd() * CHUNK), p = pts[i0 + ki], s = sAt(ki);
+      const ki = Math.floor(rnd() * CHUNK), s = sAt(ki);
       const side = rnd() < 0.5 ? -1 : 1;
       const u = rnd();
       // Measured out from the EDGE of the tarmac, not the centreline. On a
       // five-lane stretch the tarmac reaches 10.8 m and the old fixed 8 m put
       // gorse in the outside lane — which the car then bounced off.
-      const dist = edgeAt(s, side) + (FOREST ? 0.8 : 1.4) + u * u * (FOREST ? 130 : 320);
-      const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
+      // Pushed out past the houses where there are houses: gorse in the front
+      // garden of every cottage in the village was not a village.
+      const near = edgeAt(s, side) + (FOREST ? 0.8 : 1.4) + (builtUp(s) > 0.3 ? 42 : 0);
+      const dist = near + u * u * (FOREST ? 130 : 320);
       // scatter ALONG the road, never across it — a lateral jitter this size
       // would plant bushes on the tarmac
       const j = (rnd() - 0.5) * 9;
-      const x = p.x + rx * side * dist + Math.sin(p.heading) * j;
-      const z = p.z + rz * side * dist - Math.cos(p.heading) * j;
+      const g = fanPoint(s + j, side, dist);
+      const x = g.x, z = g.z;
       // Scaled to the car rather than to the screen: a gorse bush beside the
       // road is knee to waist high on a person, so it comes up to about the
       // Ferrari's sills. They still grow with distance, to stay resolvable.
       const r = (0.32 + rnd() * (FOREST ? 1.15 : 0.80)) * (1 + dist * 0.005);
       e.set(rnd() * 0.45, rnd() * 6.283, rnd() * 0.45);
       sc.set(r * (0.85 + rnd() * 0.5), r * (0.42 + rnd() * 0.45), r * (0.85 + rnd() * 0.5));
-      p3.set(x, groundAt(s + j, side, dist) + sc.y * 0.35, z);
+      p3.set(x, g.y + sc.y * 0.35, z);
       m.compose(p3, q.setFromEuler(e), sc);
       im.setMatrixAt(b, m);
       col.setHSL(0.045 + band * 0.075 + rnd() * 0.05, 0.20 + band * 0.24 + rnd() * 0.20,
@@ -1195,21 +1686,20 @@ function buildChunk(ci) {
   }
 
   if (!CITY) { // loose stone. Cheap variety, and it breaks up the ground cover
-    // where the heather thins out.
-    const STONES = 150;
+    // where the heather thins out. Cleared off the farmland, into the walls.
+    const STONES = Math.max(1, Math.round(150 * (1 - FARM * 0.92)));
     const im = new THREE.InstancedMesh(rockGeo, rockMat, STONES);
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
     const sc = new THREE.Vector3(), p3 = new THREE.Vector3();
     for (let b = 0; b < STONES; b++) {
-      const ki = Math.floor(rnd() * CHUNK), p = pts[i0 + ki], s = sAt(ki);
+      const ki = Math.floor(rnd() * CHUNK), s = sAt(ki);
       const side = rnd() < 0.5 ? -1 : 1, u = rnd();
-      const dist = edgeAt(s, side) + 2 + u * u * 180;
-      const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
-      const x = p.x + rx * side * dist, z = p.z + rz * side * dist;
+      const dist = edgeAt(s, side) + (builtUp(s) > 0.3 ? 44 : 2) + u * u * 180;
+      const g = fanPoint(s, side, dist);
       const r = 0.22 + rnd() * 0.55;
       e.set(rnd() * 3, rnd() * 6.283, rnd() * 3);
       sc.set(r, r * (0.5 + rnd() * 0.4), r * (0.8 + rnd() * 0.5));
-      p3.set(x, groundAt(s, side, dist) + sc.y * 0.25, z);
+      p3.set(g.x, g.y + sc.y * 0.25, g.z);
       m.compose(p3, q.setFromEuler(e), sc);
       im.setMatrixAt(b, m);
     }
@@ -1221,24 +1711,21 @@ function buildChunk(ci) {
   if (!CITY) { // Trees — well back from the verge, in loose stands rather than
     // scattered evenly, because nothing on a hillside grows on a uniform
     // distribution.
-    const TREES = FOREST ? 240 : Math.round(16 + band * band * 150);
+    // Farmed country is cleared country: what is left is a copse in a corner and
+    // the line of trees along a hedge, not a hillside of them.
+    const TREES = FOREST ? 240 : Math.max(4, Math.round((16 + band * band * 150) * (1 - FARM * 0.74)));
     const im = new THREE.InstancedMesh(treeGeo, treeMat, TREES);
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
     const sc = new THREE.Vector3(), p3 = new THREE.Vector3(), col = new THREE.Color();
-    let cx = 0, cz = 0, cs = 0, cd = 0, cside = 1, crx = 0, crz = 0, cfx = 0, cfz = 0, left = 0;
+    let cs = 0, cd = 0, cside = 1, left = 0;
     for (let b = 0; b < TREES; b++) {
       if (left <= 0) {                             // start a new stand
         left = (FOREST ? 8 : 4) + Math.floor(rnd() * 9);
-        const ki = Math.floor(rnd() * CHUNK), p = pts[i0 + ki];
-        cs = sAt(ki);
+        cs = sAt(Math.floor(rnd() * CHUNK));
         cside = rnd() < 0.5 ? -1 : 1;
         const u = rnd();
         // right up to the verge in the forest, and the stands overlap
         cd = edgeAt(cs, cside) + (FOREST ? 5 + u * u * 95 : 22 + u * u * 280);
-        crx = Math.cos(p.heading); crz = Math.sin(p.heading);
-        cfx = Math.sin(p.heading); cfz = -Math.cos(p.heading);
-        cx = p.x + crx * cside * cd;
-        cz = p.z + crz * cside * cd;
       }
       left--;
       // Scattered in the ROAD's frame rather than in world x/z. Doing it in world
@@ -1249,13 +1736,12 @@ function buildChunk(ci) {
       const along = (rnd() - 0.5) * 34, across = (rnd() - 0.5) * 34;
       const sHere = cs + along;
       const dist = Math.max(edgeAt(sHere, cside) + (FOREST ? 3.2 : 8), cd + across);
-      const pt = getPose(Math.max(0, sHere));
-      const trx = Math.cos(pt.heading), trz = Math.sin(pt.heading);
-      const x = pt.x + trx * cside * dist, z = pt.z + trz * cside * dist;
+      const g = fanPoint(Math.max(0, sHere), cside, dist);
+      const x = g.x, z = g.z;
       const s = 1.5 + rnd() * 2.4;
       e.set(0, rnd() * 6.283, (rnd() - 0.5) * 0.14);     // a slight lean off vertical
       sc.set(s * (0.30 + rnd() * 0.13), s * (0.30 + rnd() * 0.2), s * (0.30 + rnd() * 0.13));
-      p3.set(x, groundAt(sHere, cside, dist) - 0.15, z);
+      p3.set(x, g.y - 0.15, z);
       m.compose(p3, q.setFromEuler(e), sc);
       im.setMatrixAt(b, m);
       // A tree is a solid object and you were driving through them
@@ -1271,16 +1757,18 @@ function buildChunk(ci) {
 
   if (!CITY) { // boulders — sparse, and the only thing out here you can hit
     for (let t = 0; t < 5; t++) {
-      const ki = Math.floor(rnd() * CHUNK), p = pts[i0 + ki], s = sAt(ki);
+      if (rnd() < FARM * 0.9) continue;            // nobody farms round a boulder
+      const ki = Math.floor(rnd() * CHUNK), s = sAt(ki);
       const side = rnd() < 0.5 ? -1 : 1;
+      if (builtUp(s) > 0.3) continue;              // and not in the middle of a village
       const dist = edgeAt(s, side) + 7 + rnd() * 50;
-      const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
-      const x = p.x + rx * side * dist, z = p.z + rz * side * dist;
+      const g = fanPoint(s, side, dist);
+      const x = g.x, z = g.z;
       const r = 1.0 + rnd() * 1.1;
       const rock = new THREE.Mesh(rockGeo, rockMat);
       rock.scale.set(r, r * (0.6 + rnd() * 0.4), r * (0.8 + rnd() * 0.4));
       rock.rotation.set(rnd(), rnd() * 6.283, rnd());
-      rock.position.set(x, groundAt(s, side, dist) + r * 0.35, z);
+      rock.position.set(x, g.y + r * 0.35, z);
       group.add(rock);
       solids.push({ x, z, r: r * 0.8 });
     }
@@ -1299,69 +1787,164 @@ function buildChunk(ci) {
     }
   }
 
-  { // Anywhere built up. In the city that is everywhere; on the moor it is the
-    // village you come through every few kilometres, set further back off the
-    // road and lower, so the same code makes both. Merged per chunk rather than
-    // instanced, because instancing forces one box geometry and therefore one
-    // set of UVs — exactly the thing buildingBox() exists to avoid.
-    const shells = [], poles = [], lamps = [];
-    const tint = new THREE.Color();
-    for (let k = 1; k < CHUNK; k += (CITY ? 3 : 4) + Math.floor(rnd() * 3)) {
+  { // Anywhere built up. In the city that is everywhere; out of town it is the
+    // village you come through every few kilometres — and out of town it is a
+    // different BUILDING, not the same box scaled down. A city block is a slab
+    // with a flat top; a village is two storeys under a steep tiled roof, close
+    // to the road, in a row. The two branches share the layout loop and nothing
+    // else. Merged per chunk rather than instanced, because instancing forces
+    // one geometry and therefore one set of UVs — exactly the thing
+    // buildingBox() and villageHouse() both exist to avoid.
+    const shells = [], cots = [], roofs = [], poles = [], lamps = [], kerbs = [], fronts = [];
+    const tint = new THREE.Color(), rtint = new THREE.Color();
+    // The whole street agrees on roughly how far back it sits, and each side
+    // agrees with itself more closely than with the other. That regularity is
+    // most of what reads as "somebody laid this out" instead of "boxes were
+    // scattered near a road", and it costs two numbers.
+    const SET = { '-1': 5.5 + rnd() * 4, '1': 5.5 + rnd() * 4 };
+    // A village gets one church, at the densest point of it, and it is the thing
+    // you actually navigate by — you see the spire over the roofs long before
+    // you can see whether there is anything else there.
+    let churchAt = -1, churchBest = 0.72;
+    if (!CITY) for (let k = 4; k < CHUNK - 4; k++) {
       const u = builtUp(sAt(k));
+      if (u > churchBest) { churchBest = u; churchAt = k; }
+    }
+    if (churchAt >= 0 && rnd() > 0.55) churchAt = -1;      // not every village
+    const churchSide = rnd() < 0.5 ? -1 : 1;
+
+    for (let k = 1; k < CHUNK; k += (CITY ? 3 : 4) + Math.floor(rnd() * 3)) {
+      const s = sAt(k), u = builtUp(s);
       if (u < 0.06) continue;
       const p = pts[i0 + k];
       const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
       for (const side of [-1, 1]) {
         if (rnd() > u * 0.90) continue;      // thins out toward the edge of a place
-        const along = 9 + rnd() * 13, deep = 11 + rnd() * 15;
-        // squared so most of the skyline is low and the towers are occasional,
-        // and scaled right down out of town — villages are not full of towers
-        const tall = (7 + rnd() * rnd() * 34) * (CITY ? 1 : 0.20 + u * 0.22);
-        // set well back out of town, so houses sit behind the scrub rather than
-        // growing out of it
-        const set = (CITY ? 10.5 + rnd() * 3 : 17 + rnd() * 12) + edgeAt(sAt(k), side) - LANE_W;
-        const off = set + deep / 2;
-        const x = p.x + rx * side * off, z = p.z + rz * side * off;
-        tint.setHSL(0.07 + rnd() * 0.10, 0.05 + rnd() * 0.10, 0.42 + rnd() * 0.26, THREE.SRGBColorSpace);
-        const b = buildingBox(along, tall, deep, tint);
-        b.rotateY(Math.PI / 2 - p.heading);
-        // sunk a metre so no gap opens under it wherever the ground still rolls
-        b.translate(x, groundAt(sAt(k), side, off) + tall / 2 - 1.0, z);
-        shells.push(b);
-        // Solid, as an oriented box rather than a circle. A circle round a
-        // building is wrong in both directions at once — it leaves the corners
-        // unprotected so you clip into them, and it sticks out past the middle
-        // of every wall so you bounce off thin air. The box axes are the road's,
-        // because that is what the building was rotated to.
-        solids.push({ x, z, hw: along / 2, hl: deep / 2,
+        if (CITY) {
+          const along = 9 + rnd() * 13, deep = 11 + rnd() * 15;
+          // squared so most of the skyline is low and the towers are occasional
+          const tall = 7 + rnd() * rnd() * 34;
+          const off = 10.5 + rnd() * 3 + edgeAt(s, side) - LANE_W + deep / 2;
+          const x = p.x + rx * side * off, z = p.z + rz * side * off;
+          tint.setHSL(0.07 + rnd() * 0.10, 0.05 + rnd() * 0.10, 0.42 + rnd() * 0.26, THREE.SRGBColorSpace);
+          const b = buildingBox(along, tall, deep, tint);
+          b.rotateY(Math.PI / 2 - p.heading);
+          // sunk a metre so no gap opens under it wherever the ground still rolls
+          b.translate(x, groundAt(s, side, off) + tall / 2 - 1.0, z);
+          shells.push(b);
+          // Solid, as an oriented box rather than a circle. A circle round a
+          // building is wrong in both directions at once — it leaves the corners
+          // unprotected so you clip into them, and it sticks out past the middle
+          // of every wall so you bounce off thin air. The box axes are the
+          // road's, because that is what the building was rotated to.
+          solids.push({ x, z, hw: along / 2, hl: deep / 2,
+                        ax: Math.sin(p.heading), az: -Math.cos(p.heading) });
+          continue;
+        }
+        // ---- the village ----
+        // Most houses stand eaves-on with the ridge running along the street;
+        // every fourth or so is turned gable-on, which is what breaks the row up
+        // and gives you the triangle of a gable end against the sky.
+        const gableOn = rnd() < 0.26;
+        const barn = rnd() < 0.16;
+        const w = barn ? 13 + rnd() * 7 : gableOn ? 6.5 + rnd() * 2.5 : 8 + rnd() * 5;
+        const d = barn ? 7.5 + rnd() * 2.5 : 6.4 + rnd() * 2.8;
+        // Two storeys and an attic in the roof, which is what a village house is.
+        // These started at seven metres to the eaves and read as apartment
+        // blocks with the roofs of cottages.
+        const h = barn ? 3.8 + rnd() * 1.2 : rnd() < 0.24 ? 3.3 + rnd() * 0.7 : 4.8 + rnd() * 1.1;
+        const rise = d * (0.42 + rnd() * 0.22);       // 40 to 50 degrees of pitch
+        // Whitewash, cream, ochre and the occasional pale pink. Narrow, because a
+        // street where every house is a different colour reads as a toy town.
+        tint.setHSL(0.075 + rnd() * 0.045, 0.06 + rnd() * 0.22, 0.62 + rnd() * 0.26, THREE.SRGBColorSpace);
+        // Terracotta almost always; slate on one roof in six, and slate roofs
+        // are what stop the village looking like it was tiled in one afternoon.
+        const slate = rnd() < 0.17;
+        rtint.setHSL(slate ? 0.60 : 0.045 + rnd() * 0.02, slate ? 0.05 : 0.30 + rnd() * 0.2,
+                     slate ? 0.34 : 0.44 + rnd() * 0.16, THREE.SRGBColorSpace);
+        const acr = gableOn ? w : d;                  // footprint across the street
+        const alg = gableOn ? d : w;                  // and along it
+        const set = SET[side] + (barn ? 9 + rnd() * 8 : rnd() * 2.6) + edgeAt(s, side) - LANE_W;
+        const off = set + acr / 2;
+        const g = fanPoint(s, side, off);
+        const yaw = Math.PI / 2 - p.heading + (gableOn ? Math.PI / 2 : 0) + (rnd() - 0.5) * 0.10;
+        const house = villageHouse(w, h, d, rise, tint, rtint);
+        for (const part of [house.walls, house.roof]) {
+          part.rotateY(yaw);
+          part.translate(g.x, g.y - 0.35, g.z);
+        }
+        cots.push(house.walls); roofs.push(house.roof);
+        solids.push({ x: g.x, z: g.z, hw: alg / 2, hl: acr / 2,
+                      ax: Math.sin(p.heading), az: -Math.cos(p.heading) });
+        // Something along the frontage. Villages are not houses standing in a
+        // field: there is always a garden wall or a hedge between the front door
+        // and the carriageway. Knee to waist high — any taller and a run of them
+        // reads as crash barrier, which is exactly what the first version did.
+        if (rnd() < 0.62) {
+          const fw = fanPoint(s, side, edgeAt(s, side) + 1.6 + SET[side] * 0.5);
+          const hedge = rnd() < 0.45;
+          const wall = new THREE.BoxGeometry(alg * (0.8 + rnd() * 0.4),
+                                             hedge ? 0.95 : 0.58, hedge ? 0.7 : 0.28);
+          wall.rotateY(Math.PI / 2 - p.heading);
+          wall.translate(fw.x, fw.y + (hedge ? 0.36 : 0.20), fw.z);
+          (hedge ? fronts : kerbs).push(wall);
+        }
+      }
+      if (!CITY && k === churchAt) {
+        const off = SET[churchSide] + 12 + edgeAt(s, churchSide) - LANE_W;
+        const g = fanPoint(s, churchSide, off);
+        tint.setHSL(0.09, 0.07, 0.70, THREE.SRGBColorSpace);
+        rtint.setHSL(0.60, 0.04, 0.30, THREE.SRGBColorSpace);
+        const ch = villageChurch(tint, rtint);
+        const yaw = Math.PI / 2 - p.heading;
+        // the tower stands at the west end of the nave, off to one side of it
+        for (const part of [ch.nave.walls, ch.nave.roof]) {
+          part.rotateY(yaw); part.translate(g.x, g.y - 0.4, g.z);
+        }
+        for (const part of [ch.tower, ch.spire]) {
+          part.translate(-7.0, 0, 0);
+          part.rotateY(yaw);
+          part.translate(g.x, g.y - 0.4, g.z);
+        }
+        cots.push(ch.nave.walls, ch.tower); roofs.push(ch.nave.roof, ch.spire);
+        solids.push({ x: g.x, z: g.z, hw: 5, hl: 7,
                       ax: Math.sin(p.heading), az: -Math.cos(p.heading) });
       }
     }
     // Far settlements: a hamlet across the valley, hundreds of metres off the
-    // road and never reached. They cost almost nothing — a handful of boxes with
-    // no collision — and they are what makes the middle distance look inhabited
-    // rather than like scenery that stops existing past the verge.
+    // road and never reached. They cost almost nothing — a dozen little roofs
+    // with no collision — and they are what makes the middle distance look
+    // inhabited rather than like scenery that stops existing past the verge.
     if (!CITY) for (let f = 0; f < 3; f++) {
-      if (rnd() > 0.34) continue;
-      const ki = Math.floor(rnd() * CHUNK), p = pts[i0 + ki], st = sAt(ki);
+      if (rnd() > 0.40) continue;
+      const st = sAt(Math.floor(rnd() * CHUNK));
       const side = rnd() < 0.5 ? -1 : 1;
-      const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
-      const far = 150 + rnd() * 320;
-      const fx = p.x + rx * side * far, fz = p.z + rz * side * far;
-      const n = 3 + Math.floor(rnd() * 7);
+      const far = 150 + rnd() * 300;
+      const head = getPose(st).heading;
+      const n = 4 + Math.floor(rnd() * 8);
+      // clustered along a lane of their own, which is why they are strung out
+      // rather than scattered in a blob
+      const lane = (rnd() - 0.5) * 1.4;
       for (let b = 0; b < n; b++) {
-        const ox = (rnd() - 0.5) * 90, oz = (rnd() - 0.5) * 90;
-        const along = ox * Math.sin(p.heading) - oz * Math.cos(p.heading);
-        const across = (ox * rx + oz * rz) * side;
-        const w = 7 + rnd() * 9, d = 7 + rnd() * 9, h = 4 + rnd() * rnd() * 9;
-        tint.setHSL(0.07 + rnd() * 0.09, 0.05 + rnd() * 0.09, 0.36 + rnd() * 0.24, THREE.SRGBColorSpace);
-        const g = buildingBox(w, h, d, tint);
-        g.rotateY(Math.PI / 2 - p.heading + (rnd() - 0.5) * 0.5);
-        g.translate(fx + ox, groundAt(st + along, side, Math.max(20, far + across)) + h / 2 - 0.8, fz + oz);
-        shells.push(g);
+        const t = (b / n - 0.5) * (60 + rnd() * 40);
+        const along = t * Math.cos(lane), across = t * Math.sin(lane) + (rnd() - 0.5) * 26;
+        const w = 7 + rnd() * 7, d = 6 + rnd() * 4, h = 4 + rnd() * 3.5;
+        tint.setHSL(0.075 + rnd() * 0.04, 0.06 + rnd() * 0.18, 0.58 + rnd() * 0.26, THREE.SRGBColorSpace);
+        rtint.setHSL(0.045, 0.28 + rnd() * 0.18, 0.40 + rnd() * 0.14, THREE.SRGBColorSpace);
+        const g = fanPoint(st + along, side, Math.max(40, far + across));
+        const house = villageHouse(w, h, d, d * 0.45, tint, rtint);
+        for (const part of [house.walls, house.roof]) {
+          part.rotateY(Math.PI / 2 - head + (rnd() - 0.5) * 0.4);
+          part.translate(g.x, g.y - 0.5, g.z);
+        }
+        cots.push(house.walls); roofs.push(house.roof);
       }
     }
     if (shells.length) group.add(new THREE.Mesh(mergeGeos(shells, ['position', 'normal', 'uv', 'color']), buildingMat));
+    if (cots.length) group.add(new THREE.Mesh(mergeGeos(cots, ['position', 'normal', 'uv', 'color']), cottageMat));
+    if (roofs.length) group.add(new THREE.Mesh(mergeGeos(roofs, ['position', 'normal', 'uv', 'color']), roofMat));
+    if (kerbs.length) group.add(new THREE.Mesh(mergeGeos(kerbs), dryStoneMat));
+    if (fronts.length) group.add(new THREE.Mesh(mergeGeos(fronts), hedgeMat));
 
     // Kerbs: a raised strip either side, which is what actually tells you where
     // the carriageway ends once there is no verge to read. City only — a village
@@ -2260,6 +2843,11 @@ function applyConditions(i) {
   SNOWING = c.wet === 2;
   // Lights come on when it is dim enough to want them.
   buildingMat.emissiveIntensity = c.exposure > 1.1 ? 0.18 : 0.95;
+  // Village windows go a little further down in daylight than a city's do. A
+  // tower block has its lights on at noon and a cottage does not, and a row of
+  // glowing windows in full sun was the one thing making the villages read as
+  // painted scenery rather than as houses.
+  cottageMat.emissiveIntensity = c.lights ? 0.85 : 0.04;
   lampMat.emissiveIntensity = c.exposure > 1.1 ? 0.35 : 1.7;
   rainMesh.visible = !!c.wet;
   // Stated per condition rather than inferred from the exposure, which was the
@@ -2279,6 +2867,7 @@ function applyTerrain(i) {
   terrainIndex = i;
   BEND = wantBend;
   RELIEF = TERRAIN[i].city ? 0.22 : 1;
+  rebuildFan();      // a straighter road can carry the terrain fan further out
   if (reshape) {
     // The spline is a different SHAPE now, and points are generated once and
     // kept — so the whole thing has to be built again from the start and the car
@@ -2757,6 +3346,7 @@ addEventListener('keydown', e => {
     autoDrive = !autoDrive;
     // it drives an automatic; nobody wants it stalling the car for them
     if (autoDrive && manual) setManual(false);
+    if (autoDrive) cruiseSet = 0;   // the autopilot picks its own speeds
     if (autoDrive) autoLane = Math.max(0, Math.floor(Math.max(0, dEst) / LANE_W));
   }
   if (k === 'h') setLights(!lightsOn);
@@ -2774,20 +3364,25 @@ addEventListener('keydown', e => {
     if (!manual) setManual(true);      // asking for a gear means you want manual
     shiftTo(want);
   }
-  // Cruise control: hold E and the car keeps whatever speed it had the moment
-  // you pressed it. Not a toggle — you are holding it on, so there is never a
-  // question of whether it is still armed, and letting go is always the answer.
-  if (k === 'e' && !e.repeat) cruiseSet = (gear > 0 && vLong > 4 && engineOn) ? vLong : 0;
+  // Cruise control: E sets it to whatever speed you are doing, E again cancels.
+  // A latch rather than a held key — the whole point of one is that you can take
+  // your hands off, and a key you have to keep down for twenty minutes of
+  // motorway is a trigger, not a cruise control. What keeps it honest instead is
+  // that everything meaning "I am driving again" drops it: the brake, reverse, a
+  // stall, the autopilot. The HUD says so the entire time it is armed.
+  if (k === 'e' && !e.repeat)
+    cruiseSet = cruiseSet > 0 ? 0 : (gear > 0 && vLong > 4 && engineOn ? vLong : 0);
 
   if (k.startsWith('arrow') || k === ' ') e.preventDefault();
   initAudio();
 });
 addEventListener('keyup', e => {
   keys[e.key.toLowerCase()] = false;
-  if (e.key.toLowerCase() === 'e') cruiseSet = 0;
   if (!e.shiftKey) keys['shift'] = false;
 });
-addEventListener('blur', () => { for (const k in keys) keys[k] = false; cruiseSet = 0; });
+// Cruise survives losing focus: it is a latch, and alt-tabbing away is not a
+// request to come off it. The keys do not, or you come back to a stuck throttle.
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 
 // ================= drivetrain =================
 // The engine is a real rotating inertia, not a number lerped toward road speed.
@@ -3399,12 +3994,16 @@ renderer.setAnimationLoop(() => {
     gas = gear === -1 ? backKey : fwdKey;
     brakeIn = picking ? 1 : (gear === -1 ? fwdKey : backKey);
     steerIn = ((keys['d'] || keys['arrowright']) ? 1 : 0) - ((keys['a'] || keys['arrowleft']) ? 1 : 0);
-    // Touching either pedal hands the car straight back: this holds a speed for
-    // you, it does not take the car off you. It will not hold one in reverse or
-    // through a stall either, and it brakes far more gently than it accelerates
-    // — a cruise control that stands on the brakes down a hill is a fairground
-    // ride, and engine braking is most of what one really does.
-    if (cruiseSet > 0 && !picking && gear > 0 && engineOn && !fwdKey && !backKey) {
+    // The two pedals are not the same thing to a latched cruise control. The
+    // brake cancels it outright, as a real one does — you braked, so you have
+    // stopped wanting that speed. The throttle only overrides while you hold it,
+    // and it settles back to the set speed after, which is how you get past
+    // something without having to re-arm afterwards. Reverse and a dead engine
+    // drop it too. It brakes far more gently than it accelerates: a cruise
+    // control that stands on the brakes down a hill is a fairground ride, and
+    // engine braking is most of what a real one does on the way down.
+    if (cruiseSet > 0 && (backKey || gear < 0 || !engineOn)) cruiseSet = 0;
+    if (cruiseSet > 0 && !picking && gear > 0 && !fwdKey) {
       // Proportional alone sits about 4% under the speed you asked for, because
       // the throttle it takes to hold a speed is exactly the throttle a pure
       // error term cannot ask for once the error has gone. The integral is what
@@ -3711,6 +4310,29 @@ renderer.setAnimationLoop(() => {
     camShake = Math.min(1, camShake + into * 0.06);
   }
 
+  // ---------- the edge of the world ----------
+  // The terrain is a corridor: rings out to 755 m either side of the road and
+  // nothing at all past the last one. Drive out there and you are over a hole in
+  // the world with the ground still holding you up, which is not a thing that
+  // can be made to look right. So the ground gives up first. Past 420 m the car
+  // is dragged back as if it were wading, hard enough that nothing gets to the
+  // edge and gently enough that it is a bog and not a wall — you can turn round
+  // and drive out of it, which is what you were going to do anyway.
+  // This is the second half of the same bug as the projection guard in probe():
+  // between them, going a long way off the road is now boring rather than
+  // catastrophic.
+  const outBy = Math.abs(dEst) - 420;
+  if (outBy > 0) {
+    const pull = Math.min(1, outBy / 90);
+    // sideways: back toward the road, as a velocity rather than a teleport
+    const back = -Math.sign(dEst) * pull * 26 * dt;
+    pos.x += rx * back; pos.z += rz * back;
+    // and everything slows down, so it reads as ground rather than as a hand
+    const drag = 1 - Math.min(0.9, pull * 2.2 * dt);
+    vLong *= drag; vLat *= drag;
+    camShake = Math.min(0.5, camShake + pull * 1.2 * dt);
+  }
+
   // ---------- boulder collisions ----------
   const carChunk = Math.floor(sEst / SEG / CHUNK);
   for (let ci = carChunk - 1; ci <= carChunk + 1; ci++) {
@@ -3944,10 +4566,11 @@ renderer.setAnimationLoop(() => {
     toastFor = 3.4;
   }
   toastFor = Math.max(0, toastFor - dt);
-  // Cruise takes the slot while it is held, because it is the one thing here
-  // you need told back to you: it is a speed you set some time ago.
+  // Cruise takes the slot for as long as it is armed, and that matters more now
+  // that it latches: it is a speed you set some time ago and nothing on screen
+  // would otherwise tell you the car is still holding it.
   if (cruiseSet > 0 && !picking) {
-    el.toast.innerHTML = 'CRUISE<small>holding ' + Math.round(cruiseSet * 3.6) + ' km/h</small>';
+    el.toast.innerHTML = 'CRUISE<small>' + Math.round(cruiseSet * 3.6) + ' km/h &middot; E to cancel</small>';
     setSty(el.toast, 'opacity', '0.9');
   } else setSty(el.toast, 'opacity', toastFor > 0 ? '0.9' : '0');
   // An automatic is in D and then a gear within it, which is what the selector
