@@ -174,9 +174,95 @@
   }
   #keys b { font-weight: 600; background: rgba(255,255,255,.13); border-radius: 3px;
             padding: 1px 5px; font-size: 9.5px; }
+
+  /* The phone notice. Hidden by default and switched on by the class the head
+     script puts on <html>, so it is decided before the first paint — a phone
+     never sees a flash of a menu it cannot use. Everything else goes away with
+     it, including the canvas, because there will not be one. */
+  #nodrive { display: none; }
+  html.nodrive #hud, html.nodrive #pick, html.nodrive #grade, html.nodrive canvas { display: none !important; }
+  html.nodrive, html.nodrive body { background: #1a0f1c; }
+  html.nodrive #nodrive {
+    position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; text-align: center;
+    padding: 8vh 26px; box-sizing: border-box; gap: 0;
+    font-family: "Segoe UI", system-ui, sans-serif; color: #fff;
+    background: radial-gradient(ellipse 90% 60% at 50% 42%, #3a2340 0%, #1a0f1c 72%);
+    user-select: none; overflow: auto;
+  }
+  #ndart { width: 116px; height: 116px; border-radius: 16px; margin-bottom: 30px; flex: none; }
+  #ndtitle { font-size: 11px; letter-spacing: 9px; opacity: .40; font-weight: 600; }
+  #ndhead {
+    font-size: 27px; font-weight: 700; letter-spacing: .6px; line-height: 1.25;
+    margin-top: 18px; max-width: 15ch;
+  }
+  #ndbody { font-size: 14px; line-height: 1.75; opacity: .58; margin-top: 16px; max-width: 34ch; }
+  /* The address, because "open it on a computer" is useless without it. */
+  #ndurl {
+    margin-top: 26px; padding: 11px 16px; border-radius: 9px; font-size: 13px;
+    letter-spacing: .4px; color: #ffd166; word-break: break-all; max-width: 100%;
+    background: rgba(255,209,102,.10); border: 1px solid rgba(255,209,102,.28);
+  }
+  /* An iPad with a keyboard on it reports exactly the same thing a phone does,
+     and locking that out would be a worse bug than the one this fixes. */
+  #ndanyway {
+    margin-top: 26px; background: none; border: 0; color: inherit; font: inherit;
+    font-size: 11.5px; letter-spacing: 1.6px; opacity: .34; text-decoration: underline;
+    text-underline-offset: 4px; cursor: pointer; padding: 8px;
+  }
+  /* A phone held sideways is 400 px tall, and the notice has to fit in that
+     without being scrolled to — the address and the way out were both below the
+     fold, which on the one screen whose entire job is to be read is no good. */
+  @media (max-height: 620px) {
+    html.nodrive #nodrive { padding: 20px 24px; justify-content: flex-start; }
+    #ndart { width: 58px; height: 58px; border-radius: 10px; margin-bottom: 12px; }
+    #ndhead { font-size: 21px; margin-top: 10px; max-width: 24ch; }
+    #ndbody { font-size: 13px; margin-top: 10px; max-width: 52ch; }
+    #ndurl { margin-top: 15px; padding: 9px 14px; }
+    #ndanyway { margin-top: 12px; }
+  }
 </style>
+<!-- Runs while the parser is still in the head, which is the whole point: the
+     decision is made before the first paint and, more importantly, before the
+     module below is evaluated. A phone that is told to go and find a computer
+     should not also spend thirty seconds building a world, holding a WebGL
+     context open and running an animation loop it will never show. -->
+<script>
+  // Not "is it a small screen". A desktop window dragged narrow is still a
+  // desktop, and a touchscreen laptop still has a keyboard under it. The
+  // question is whether there is a pointer that can hover and a keyboard to
+  // hold a throttle down with, and no-hover-plus-coarse-pointer is how you ask
+  // it. The maxTouchPoints half is the fallback for browsers too old for that.
+  var touchOnly = matchMedia('(hover: none) and (pointer: coarse)').matches
+    || (navigator.maxTouchPoints > 0 && !matchMedia('(hover: hover)').matches);
+  var override = false;
+  try { override = sessionStorage.getItem('outbound-anyway') === '1'; } catch (e) {}
+  window.NO_DRIVE = touchOnly && !override;
+  if (window.NO_DRIVE) document.documentElement.className = 'nodrive';
+  addEventListener('DOMContentLoaded', function () {
+    if (!window.NO_DRIVE) return;
+    document.getElementById('ndurl').textContent =
+      (location.host + location.pathname).replace(/\/index\.html$/, '').replace(/\/$/, '');
+    document.getElementById('ndanyway').onclick = function () {
+      try { sessionStorage.setItem('outbound-anyway', '1'); } catch (e) {}
+      location.reload();
+    };
+  });
+</script>
 </head>
 <body>
+<div id="nodrive">
+  <img id="ndart" alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3ClinearGradient id='k' gradientUnits='userSpaceOnUse' x1='0' y1='0' x2='0' y2='13'%3E%3Cstop offset='0' stop-color='%23402957'/%3E%3Cstop offset='.62' stop-color='%23a96b86'/%3E%3Cstop offset='1' stop-color='%23f7c391'/%3E%3C/linearGradient%3E%3Crect width='32' height='13' fill='url(%23k)'/%3E%3Crect y='13' width='32' height='19' fill='%233d3b23'/%3E%3Crect y='19' width='32' height='13' fill='%232f2d1c'/%3E%3Cpath d='M13.9 13h4.2L31 32H1z' fill='%23b3ada2'/%3E%3Cpath d='M15.7 15h.6l.3 2.6h-1.2zM15.1 20.2h1.8l.5 3.8h-2.8zM14 27h4l.8 5h-5.6z' fill='%23fff'/%3E%3C/svg%3E">
+  <div id="ndtitle">OUTBOUND</div>
+  <div id="ndhead">This one wants a keyboard</div>
+  <div id="ndbody">
+    A throttle you hold down, a clutch on Shift and seven gears under your left
+    hand &mdash; there is no honest way to do that with a thumb. Open it on a
+    computer and the whole road is there.
+  </div>
+  <div id="ndurl"></div>
+  <button id="ndanyway">I have a keyboard &mdash; start anyway</button>
+</div>
 <div id="grade"></div>
 <div id="hud">
   <div id="title">OUTBOUND</div>
@@ -232,6 +318,16 @@
 
 <script type="module">
 import * as THREE from 'three';
+
+// Nothing below this line happens on a phone. The notice in the head has
+// already decided and is already on screen; this is the half that stops the
+// engine starting behind it. Everything at this module's top level is real
+// work — a WebGL context, half a dozen canvas textures, the car, the first
+// chunks of world — and none of it is free on a device that is being sent
+// away. Stopping the module dead is the one thing that reads as "we are not
+// running" from anywhere in a four thousand line file; wrapping the file in an
+// `if` would say the same thing and indent every line of it to do so.
+if (window.NO_DRIVE) throw new Error('OUTBOUND: needs a keyboard — not starting on a touch device');
 
 // ================= world constants =================
 const SEG = 3, CHUNK = 60;
