@@ -1598,16 +1598,20 @@ function buildChunk(ci) {
         // seam. This is the same function read 61 times instead of once.
         const farm = farmAt(vnoise(sAt(k) * 0.00021, 3.1));
         for (let b = 0; b < bands; b++) {
-          // Is this band a field, or is it the verge? The first few rings are
-          // the road's own edge - gravel into mown grass into whatever grows
-          // there - and that has to stay a smooth gradient, so those bands keep
-          // reading their colour per ring. Everything from 9 m out is a field.
-          // 19 m out, not 9. The first band past the verge is what you actually
-          // drive alongside for hours, and one flat colour filling the bottom
-          // third of the screen is paint however good the patchwork behind it
-          // is. That band stays rough grass; the fields start at the first wall.
-          const isField = farm > 0.01 && OFFS[b] >= 15;
-          if (isField) {
+          // A hard edge belongs where something stands on it, and nowhere else.
+          // These two bands - 19 to 37 m and 37 to 73 m - are the ones the
+          // hedges and the drystone walls enclose, so they get a flat colour
+          // with a knife edge on each side and read as fields. Every band past
+          // them had the same knife edge with nothing on the line, and a knife
+          // edge with nothing on it does not read as a field boundary at all:
+          // it reads as a STEP IN THE GROUND. A hillside of them looks like
+          // terracing, or like slabs left lying about, which is exactly what
+          // they were reported as. Out there the colour is blended instead.
+          // Also gated on the country being properly farmed, because a
+          // half-strength field edge in a moor-to-farm transition is still a
+          // hard edge, and that is the half of it you actually notice.
+          const walled = farm > 0.55 && OFFS[b] >= 15 && OFFS[b] < 73;
+          if (walled) {
             // Read at the MIDDLE of the band, so both of its columns agree and
             // the field comes out one flat colour with an edge on each side.
             const mx = (sp[(k * cols + b) * 3] + sp[(k * cols + b + 1) * 3]) / 2;
@@ -1628,7 +1632,20 @@ function buildChunk(ci) {
             // two noise scales: broad heather/bracken patches, then a finer mottle
             tmp.lerpColors(scrubCol, dryCol, vnoise(x * 0.012, z * 0.012));
             tmp.lerp(sageCol, vnoise(x * 0.05, z * 0.05) * 0.5);
-            if (isField) tmp.lerp(crop, farm * 0.80);
+            if (walled) tmp.lerp(crop, farm * 0.80);
+            else if (farm > 0.01 && OFFS[j] >= 15) {
+              // The far country. Continuous in x and z rather than blocked out,
+              // so there is no edge anywhere in it - not across the fan and not
+              // along the road either, which the 132 m field blocks were drawing
+              // just as hard. It still changes crop over a few hundred metres,
+              // which at this distance and through this much haze is all the
+              // patchwork that was ever legible.
+              const fv = vnoise(x * 0.0032, z * 0.0032) * CROPS.length;
+              const fi = Math.floor(fv) % CROPS.length;
+              crop.lerpColors(CROPS[fi], CROPS[(fi + 1) % CROPS.length], fv - Math.floor(fv));
+              crop.multiplyScalar(0.86 + vnoise(x * 0.028, z * 0.028) * 0.28);
+              tmp.lerp(crop, farm * 0.72);
+            }
             else if (OFFS[j] < 1.3) tmp.lerp(gravelCol, 0.7);
             else if (OFFS[j] < 3.1) tmp.lerp(vergeCol, 0.6);
             else if (OFFS[j] < 6.1) tmp.lerp(vergeCol, 0.25);
@@ -4596,9 +4613,21 @@ renderer.setAnimationLoop(() => {
   } else {
     const back = camMode === 0 ? 7.2 : 12;
     const up = camMode === 0 ? 2.85 : 5.0;
-    // trail behind the direction of travel, GTA style
-    const travel = Math.atan2(fx * vLong + rx * vLat, fz * vLong + rz * vLat);
-    const blend = smoothstep(2, 14, speedAbs) * 0.55;
+    // Trail behind the direction of travel, GTA style: in a slide the car is
+    // yawed away from where it is actually going, and following the velocity
+    // keeps the road you are sliding towards in the frame.
+    const tvx = fx * vLong + rx * vLat, tvz = fz * vLong + rz * vLat;
+    const travel = Math.atan2(tvx, tvz);
+    // Forwards only. Reversing points `travel` at the car's tail, and blending
+    // towards it walked the camera straight through the car and out of the
+    // front: at about 8 m/s backwards the blend cancelled the car's own heading
+    // exactly, dropping the camera onto the roof, and past that it hung in
+    // front of the bonnet still looking forward - so the thing you were
+    // reversing was behind the lens and simply not on the screen. Faded out
+    // rather than switched, though the switch would do here (the speed gate
+    // above is already zero below 2 m/s either way); a fade cannot be broken by
+    // someone later widening that gate.
+    const blend = smoothstep(2, 14, speedAbs) * 0.55 * smoothstep(0, 3, vLong);
     const camYawX = fx * (1 - blend) + Math.sin(travel) * blend;
     const camYawZ = fz * (1 - blend) + Math.cos(travel) * blend;
     const tx = pos.x - camYawX * back, tz = pos.z - camYawZ * back;
