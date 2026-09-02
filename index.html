@@ -8,13 +8,13 @@
 <!-- The whole game is one file, and a favicon should not be the thing that makes
      it two. Drawn inline instead: the dusk sky, the dark land under it and the
      road running out to the horizon, which is the entire game in three shapes.
-     Nothing smaller than a couple of pixels at 16 across — the centre dashes are
+     Nothing smaller than a couple of pixels at 16 across - the centre dashes are
      the only detail, and they are what stops it reading as an abstract wedge. -->
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3ClinearGradient id='k' gradientUnits='userSpaceOnUse' x1='0' y1='0' x2='0' y2='13'%3E%3Cstop offset='0' stop-color='%23402957'/%3E%3Cstop offset='.62' stop-color='%23a96b86'/%3E%3Cstop offset='1' stop-color='%23f7c391'/%3E%3C/linearGradient%3E%3Crect width='32' height='13' fill='url(%23k)'/%3E%3Crect y='13' width='32' height='19' fill='%233d3b23'/%3E%3Crect y='19' width='32' height='13' fill='%232f2d1c'/%3E%3Cpath d='M13.9 13h4.2L31 32H1z' fill='%23b3ada2'/%3E%3Cpath d='M15.7 15h.6l.3 2.6h-1.2zM15.1 20.2h1.8l.5 3.8h-2.8zM14 27h4l.8 5h-5.6z' fill='%23fff'/%3E%3C/svg%3E">
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #2a2330; }
   canvas { display: block; }
-  /* lens vignette — costs nothing and does most of the work a bloom pass would */
+  /* lens vignette - costs nothing and does most of the work a bloom pass would */
   #grade {
     position: fixed; inset: 0; pointer-events: none;
     background: radial-gradient(ellipse 78% 68% at 50% 46%, rgba(0,0,0,0) 40%, rgba(26,10,24,.46) 100%);
@@ -69,7 +69,7 @@
     position: absolute; right: 30px; bottom: 132px;
     font-size: 84px; font-weight: 300; line-height: 1; opacity: .95; white-space: nowrap;
     transform-origin: 100% 50%;
-    /* the shift flash scales this every frame it runs — give it its own layer so
+    /* the shift flash scales this every frame it runs - give it its own layer so
        the compositor moves it instead of the main thread re-rastering 84px of
        shadowed text at a new size on each of those frames */
     will-change: transform;
@@ -95,7 +95,7 @@
   /* The car picker. This used to be five rows of cards with a label down the
      left, which is the shape of a settings dialog: every choice the same size,
      nothing to look at, and the thing you are actually choosing hidden behind
-     it. Now the car is the screen — its name at the top, its numbers under
+     it. Now the car is the screen - its name at the top, its numbers under
      that, and the middle deliberately left clear so the model itself shows
      through. The four other choices are one line of pills along the bottom,
      because they are settings and should look like settings; the car is not. */
@@ -176,7 +176,7 @@
             padding: 1px 5px; font-size: 9.5px; }
 
   /* The phone notice. Hidden by default and switched on by the class the head
-     script puts on <html>, so it is decided before the first paint — a phone
+     script puts on <html>, so it is decided before the first paint - a phone
      never sees a flash of a menu it cannot use. Everything else goes away with
      it, including the canvas, because there will not be one. */
   #nodrive { display: none; }
@@ -211,7 +211,7 @@
     text-underline-offset: 4px; cursor: pointer; padding: 8px;
   }
   /* A phone held sideways is 400 px tall, and the notice has to fit in that
-     without being scrolled to — the address and the way out were both below the
+     without being scrolled to - the address and the way out were both below the
      fold, which on the one screen whose entire job is to be read is no good. */
   @media (max-height: 620px) {
     html.nodrive #nodrive { padding: 20px 24px; justify-content: flex-start; }
@@ -257,11 +257,11 @@
   <div id="ndhead">This one wants a keyboard</div>
   <div id="ndbody">
     A throttle you hold down, a clutch on Shift and seven gears under your left
-    hand &mdash; there is no honest way to do that with a thumb. Open it on a
+    hand - there is no honest way to do that with a thumb. Open it on a
     computer and the whole road is there.
   </div>
   <div id="ndurl"></div>
-  <button id="ndanyway">I have a keyboard &mdash; start anyway</button>
+  <button id="ndanyway">I have a keyboard - start anyway</button>
 </div>
 <div id="grade"></div>
 <div id="hud">
@@ -306,7 +306,7 @@
     <div id="pickgo"><kbd>Enter</kbd>DRIVE</div>
     <div id="keys">
       <b>W</b>/<b>S</b> gas &amp; brake &nbsp; <b>A</b>/<b>D</b> steer &nbsp; <b>Space</b> handbrake &nbsp; <b>C</b> camera &nbsp; <b>G</b> autopilot &nbsp; <b>H</b> headlights<br>
-      <b>E</b> cruise control on/off &nbsp; <b>Shift</b> clutch &mdash; hold to change gear &nbsp; <b>1</b>&ndash;<b>7</b> gears &nbsp; <b>0</b> neutral &nbsp; <b>T</b> back to auto<br>
+      <b>E</b> cruise control on/off &nbsp; <b>Shift</b> clutch - hold to change gear &nbsp; <b>1</b>&ndash;<b>7</b> gears &nbsp; <b>0</b> neutral &nbsp; <b>T</b> back to auto<br>
       reverse: <b>R</b> to select it, then <b>S</b> to back up and <b>W</b> to stop &nbsp;&middot;&nbsp; <b>P</b> fresh car &nbsp; <b>M</b> sound &nbsp; <b>Esc</b> back here
     </div>
   </div>
@@ -322,12 +322,12 @@ import * as THREE from 'three';
 // Nothing below this line happens on a phone. The notice in the head has
 // already decided and is already on screen; this is the half that stops the
 // engine starting behind it. Everything at this module's top level is real
-// work — a WebGL context, half a dozen canvas textures, the car, the first
-// chunks of world — and none of it is free on a device that is being sent
+// work - a WebGL context, half a dozen canvas textures, the car, the first
+// chunks of world - and none of it is free on a device that is being sent
 // away. Stopping the module dead is the one thing that reads as "we are not
 // running" from anywhere in a four thousand line file; wrapping the file in an
 // `if` would say the same thing and indent every line of it to do so.
-if (window.NO_DRIVE) throw new Error('OUTBOUND: needs a keyboard — not starting on a touch device');
+if (window.NO_DRIVE) throw new Error('OUTBOUND: needs a keyboard - not starting on a touch device');
 
 // ================= world constants =================
 const SEG = 3, CHUNK = 60;
@@ -374,14 +374,14 @@ function mulberry32(seed) {
 
 // ================= road spline =================
 // The road is defined by its HEADING as a function of arc length, and curvature
-// is that function differentiated. It used to be the other way round — a
-// curvature function, integrated into a heading — and that is a genuinely
+// is that function differentiated. It used to be the other way round - a
+// curvature function, integrated into a heading - and that is a genuinely
 // different road, because the integral of a sum of sines is unbounded. With the
 // old amplitudes the heading wandered through several complete turns: the road
 // looped, and every couple of kilometres it came back and crossed a stretch of
 // itself. That is what put hills on the carriageway. The terrain skirt built out
 // to 755 m as the far wall of a valley at s = 2790 was, in world space, sitting
-// on the tarmac at s = 4617 — thirty metres above it, because the elevation
+// on the tarmac at s = 4617 - thirty metres above it, because the elevation
 // function had moved on. You drove into the side of a mountain that was standing
 // on the road, and nothing about the terrain code was wrong.
 //
@@ -389,14 +389,14 @@ function mulberry32(seed) {
 // The four amplitudes sum to 1.36 rad, and 1.36 < pi/2, so cos(heading) is never
 // less than 0.21: every metre of road gains at least 21 cm of -Z. The road is
 // therefore a graph over Z and CANNOT touch itself, whatever the phases do.
-// Amplitude is spent where it shows — the two fast terms carry most of the bend
+// Amplitude is spent where it shows - the two fast terms carry most of the bend
 // and cost almost no heading, so the road corners harder than the old one
 // (257 m at the tightest against 200) while going somewhere.
 const HDG = [[0.50, 0.00062, 1.3],    // the long sweep across a valley
              [0.40, 0.00160, 4.1],    // the shape of a hillside
              [0.30, 0.00420, 2.6],    // proper corners, one every 750 m
              [0.16, 0.01050, 0.4]];   // kinks and crests
-// The road's actual bend. An autobahn keeps a tenth of it — dead straight reads
+// The road's actual bend. An autobahn keeps a tenth of it - dead straight reads
 // as a treadmill, and a motorway does drift. Everything that asks what shape the
 // road is asks THESE, so the spline, the solid/dashed rule, the terrain fan and
 // the autopilot's corner scan all agree about it.
@@ -419,7 +419,7 @@ const gen = { x: 0, z: 0, heading: 0 };
 
 // The road is one array of points, generated forward and never branching. It
 // used to divide every couple of kilometres and let you pick a side, which
-// meant a point past which the road COULD NOT BE GENERATED until you chose —
+// meant a point past which the road COULD NOT BE GENERATED until you chose -
 // and everything downstream of that (a stub you could steer onto and drive off
 // the end of, a choice that had to be revocable, a generator that could stall
 // waiting for you) existed to prop up that one idea. It is gone, and so is all
@@ -428,7 +428,7 @@ function ensurePoints(n) {
   while (pts.length <= n) {
     const i = pts.length, s = i * SEG;
     // Read, not integrated. Integrating roadCurve would give the same road to
-    // within rounding, but only the same road — the bound that stops it looping
+    // within rounding, but only the same road - the bound that stops it looping
     // is a property of the heading FUNCTION, and a drifting accumulator is
     // exactly how you lose it a hundred kilometres in.
     gen.heading = roadHeading(s);
@@ -446,7 +446,7 @@ function getPose(s) {
   if (!(i0 >= 0)) { i0 = 0; t = 0; }              // NaN in, last known pose out
   // Clamped at the end of what exists. Past an undecided junction there is
   // nothing yet, and every caller here would rather have the last real pose than
-  // a crash — the choice gets made long before the car arrives.
+  // a crash - the choice gets made long before the car arrives.
   if (i0 + 1 >= pts.length) { i0 = Math.max(0, pts.length - 2); t = 1; }
   const a = pts[i0], b = pts[i0 + 1];
   return {
@@ -459,7 +459,7 @@ function getPose(s) {
 // Lanes per direction rather than a total, because that is what a road actually
 // has: `l` is oncoming, `r` is yours, and the divider stays at d = 0 whatever
 // happens either side of it. New lanes are added at the OUTSIDE, so a car in
-// lane 1 is still in lane 1 after the road has grown a third — which is the
+// lane 1 is still in lane 1 after the road has grown a third - which is the
 // property the traffic AI needs and the one a symmetric half-width cannot give.
 // Filled into a shared object: this is called several times per frame per car,
 // and a two-element array each time is the kind of garbage that shows up as a
@@ -489,7 +489,7 @@ function lanesAt(s) {
   // going to give both directions goes to yours, and never fewer than three.
   if (TERRAIN[terrainIndex].oneWay) { lanes.r = Math.max(3, lanes.l + lanes.r); lanes.l = 0; }
   // And a village pinches it back in. Nowhere in Europe is a five-lane road, and
-  // the houses that front it stand eight metres from the kerb — the two together
+  // the houses that front it stand eight metres from the kerb - the two together
   // read as a bypass with a film set beside it. This is the same widening
   // machinery run backwards, and it is what makes you lift coming into a place.
   // In a city builtUp is 1 everywhere by definition, and a city of single-track
@@ -507,7 +507,7 @@ function lanesAt(s) {
 // Tied to width, because that is how it works in reality: a road wide enough to
 // have two lanes each way is a road somebody built a central reservation into.
 // On these stretches there is no oncoming traffic to worry about at all, which
-// changes what the driver — human or not — is allowed to do with the fast lane.
+// changes what the driver - human or not - is allowed to do with the fast lane.
 const divided = s => { const L = lanesAt(s); return L.l > 0.9 && L.l + L.r > 3.9; };
 
 // signed: negative d is the oncoming carriageway
@@ -520,7 +520,7 @@ const edgeAt = (s, d) => (d < 0 ? lanesAt(s).l : lanesAt(s).r) * LANE_W;
 // block of flats pitched over a moorland fold reads as a landslide.
 let RELIEF = 1;
 // Everything here is measured from the EDGE of the tarmac rather than from the
-// centre line, because the road is no longer a fixed width — a five-lane stretch
+// centre line, because the road is no longer a fixed width - a five-lane stretch
 // would otherwise have hills growing through the outside lane.
 function terrainY(roadY, x, z, absd, edge) {
   const beyond = Math.max(0, absd - edge);
@@ -532,8 +532,8 @@ function terrainY(roadY, x, z, absd, edge) {
   // Square root, not linear. Linear growth put a 280 m amplitude on the outer
   // ring, which is not a hill but the Eiger, drawn at a resolution of one vertex
   // every 230 m and therefore rendered as a triangular slab. The root reaches
-  // most of its height by the middle distance — where the eye actually reads
-  // landform — and then settles, so the far ridges sit in the fog and end the
+  // most of its height by the middle distance - where the eye actually reads
+  // landform - and then settles, so the far ridges sit in the fog and end the
   // view instead of towering out of the top of the frame.
   const far = Math.sqrt(beyond / 760);
   const relief = (n0 - 0.5) * 2 * (7 + 94 * far)
@@ -549,13 +549,13 @@ function probe(x, z, sHint) {
   // Newton on the projection, and every step has to EARN its place: it is only
   // kept if it actually got NEARER the query point. That guard is the whole
   // difference between a search and a stampede. Take a point a few hundred
-  // metres off the road — the car, out on the moor — and the raw step is the
+  // metres off the road - the car, out on the moor - and the raw step is the
   // forward component of a very long offset, which can be hundreds of metres and
   // can point the other way on the next iteration. The old version clamped the
   // step and ran twice, which bounded the damage at 90 m of arc length per frame
   // and did not stop it: sEst walked away at five kilometres a second, carChunk
   // walked with it, and the streamer tore down and rebuilt every chunk in the
-  // world every single frame — which, from the driver's seat, looks exactly like
+  // world every single frame - which, from the driver's seat, looks exactly like
   // the game restarting itself. Best-of-four cannot do that. The worst it can do
   // is fail to improve, which leaves sEst exactly where it was.
   for (let k = 0; k < 4; k++) {
@@ -572,7 +572,7 @@ function probe(x, z, sHint) {
   const L = lanesAt(s);
   const el = L.l * LANE_W, er = L.r * LANE_W, edge = d < 0 ? el : er;
   // groundAt, not terrainY. The formula's height at a point and the height of
-  // the MESH at that point are two different numbers — the rings are up to
+  // the MESH at that point are two different numbers - the rings are up to
   // 230 m apart out there and the surface between them is a flat triangle, so
   // the formula can sit several metres above or below what is actually drawn.
   // Driving on the formula is what put the car inside the hillside.
@@ -594,21 +594,21 @@ document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 // Furthest geometry is about 1.2 km (5 chunks ahead, 760 m of terrain to the
-// side). near/far is kept as tight as that allows — the ratio is what sets depth
+// side). near/far is kept as tight as that allows - the ratio is what sets depth
 // precision, and 0.1/4000 buys nothing but z-fighting on distant hills.
 // 44 degrees, not the 62 this started with. Two levers matter and they do
 // different jobs: how CLOSE the camera sits sets how big the car is against the
 // hills behind it, since only the car gets nearer; how WIDE the lens is then
 // sets how much of the frame that becomes. Measured by projecting the body
 // through the camera at 120 km/h, the car went from 8% of the screen width to
-// 29% — and most of that was not the lens or the distance at all, but the
+// 29% - and most of that was not the lens or the distance at all, but the
 // follow lag documented down in the camera block.
 const FOV = 44;
 const camera = new THREE.PerspectiveCamera(FOV, innerWidth / innerHeight, 0.35, 2400);
 
-// The palette. Everything else in the file is graded against these values — the
+// The palette. Everything else in the file is graded against these values - the
 // fog, the terrain, the lights, the clouds and the vignette all come back to
-// them — so they are held in mutable objects that the sky shader's uniforms and
+// them - so they are held in mutable objects that the sky shader's uniforms and
 // the fog point AT rather than copy. applyConditions() below writes through them
 // and the whole scene regrades without a single object being rebuilt.
 const SKY_TOP = new THREE.Color();
@@ -651,7 +651,7 @@ function makeCloudTexture() {
 }
 
 // Sky dome. A vertical three-stop ramp, a glow around the sun direction, and two
-// layers of cloud — a flat background colour is the single most game-looking
+// layers of cloud - a flat background colour is the single most game-looking
 // thing you can do, and an empty one is the second.
 const skyDome = new THREE.Mesh(
   new THREE.SphereGeometry(2000, 32, 20),
@@ -708,7 +708,7 @@ skyDome.frustumCulled = false;
 scene.add(skyDome);
 
 // Reflections. Without an environment a metal is pure specular with nothing to
-// reflect, so the wheels would render black and the paint would be flat — the
+// reflect, so the wheels would render black and the paint would be flat - the
 // two things that most give a car away as untextured geometry. A 256x128
 // equirectangular ramp through the same palette, prefiltered so roughness
 // actually blurs it, costs one texture and fixes both. One is prefiltered per
@@ -773,7 +773,7 @@ const CONDITIONS = [{
   lights: true,
   stats: 'wet road, a third less grip<br>the tail will step out on you',
   top: 0x4a5566, mid: 0x6b7480, haze: 0x8a8f92, tint: 0xb9bec2,
-  // No direction to speak of under a closed sky — high and weak, so the light
+  // No direction to speak of under a closed sky - high and weak, so the light
   // is almost all hemisphere and nothing on the car catches a hard highlight.
   dir: [0.25, 0.62, -0.74], sunCol: 0x9aa4ae, sunPower: 1.1,
   hemiSky: 0x8b96a4, hemiGround: 0x3a3a36, hemiInt: 1.00,
@@ -828,7 +828,7 @@ addEventListener('resize', () => {
 });
 
 // ================= materials =================
-// 256 px spans the full 10 m width, so one pixel is about 4 cm — enough to draw
+// 256 px spans the full 10 m width, so one pixel is about 4 cm - enough to draw
 // the lane markings at their real width instead of approximating them. The tile
 // is 24 m long, which is two full dash cycles and long enough that you have to
 // look for the repeat.
@@ -883,7 +883,7 @@ function makeMarkTexture() {
   const g = c.getContext('2d');
   g.clearRect(0, 0, W, H);
   g.fillStyle = '#cfccc3'; g.fillRect(0, 0, 32, H);                    // solid
-  // 4 m of paint, 8 m of nothing — a 12 m cycle, so it tiles twice in 24 m
+  // 4 m of paint, 8 m of nothing - a 12 m cycle, so it tiles twice in 24 m
   for (let m = 0; m < ROAD_TILE; m += 12) { g.fillStyle = '#cfccc3'; g.fillRect(32, m * PM, 32, 4 * PM); }
   g.fillStyle = 'rgba(20,21,25,.30)'; g.fillRect(64, 0, 32, H);        // wheel polish
   // A direction arrow, once per 24 m tile, pointing along +v. Lanes going the
@@ -915,7 +915,7 @@ function makeMarkTexture() {
 }
 // The road keeps a PBR material: it is the one surface where a sheen off the low
 // sun is worth paying for. Everything else out here is a rough dielectric, where
-// Lambert is visually indistinguishable and far cheaper per pixel — and terrain
+// Lambert is visually indistinguishable and far cheaper per pixel - and terrain
 // and scrub are most of the screen, every frame.
 const roadMat = new THREE.MeshStandardMaterial({
   map: makeRoadTexture(), roughness: 0.82, metalness: 0.0,
@@ -928,7 +928,7 @@ const markMat = new THREE.MeshLambertMaterial({
   polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3,
 });
 // Real roads paint a solid line wherever you cannot see far enough ahead to
-// overtake — round bends and over crests — so which one you get comes straight
+// overtake - round bends and over crests - so which one you get comes straight
 // out of the spline's own curvature and the second difference of its elevation
 // rather than out of a random number. It works out at roughly 60% dashed and a
 // change every 250 m or so. Quantised into 36 m blocks, because a centre line
@@ -941,7 +941,7 @@ const centreDashed = s => {
 
 // A tiling mottle for the open ground. Vertex colours alone leave the terrain
 // perfectly smooth between the ring lines, which up close is the most obvious
-// thing about it — heather and bracken have grain at every scale.
+// thing about it - heather and bracken have grain at every scale.
 const GROUND_MEAN = 0.8;                       // and the palette is scaled by 1/this
 function makeGroundTexture() {
   const S = 256;
@@ -954,7 +954,7 @@ function makeGroundTexture() {
     const n = 0.45 * tileNoise(u, v, 8) + 0.33 * tileNoise(u, v, 22) + 0.22 * tileNoise(u, v, 64);
     // Linear, not sRGB. This texture is a multiplier on the vertex colours, and
     // staying linear means its average really is GROUND_MEAN rather than
-    // whatever the transfer curve would have made of it — so the compensation
+    // whatever the transfer curve would have made of it - so the compensation
     // below is exact and the palette comes out unchanged.
     const o = (y * S + x) * 4;
     img.data[o] = img.data[o + 1] = img.data[o + 2] = Math.round((0.60 + 0.40 * n) * 255);
@@ -972,7 +972,7 @@ const terrainMat = new THREE.MeshLambertMaterial({
 });
 
 // ---- city ----
-// One texture holds an 8x8 grid of bays — wall, window, sill — and the UVs on
+// One texture holds an 8x8 grid of bays - wall, window, sill - and the UVs on
 // every building face are scaled by that face's real size in metres. A tower and
 // a two-storey shop therefore get windows the same SIZE rather than the same
 // COUNT, which is most of the difference between a city and a row of scaled
@@ -1040,8 +1040,8 @@ function buildingBox(w, h, d, tint) {
 // ---- villages ----
 // The city's facade is a grid of office windows, and a village built out of it
 // looks like a city that has been shrunk. A village is a different building: two
-// storeys, a window either side of a door, shutters, and — the part that
-// actually does the work — a steep tiled roof. You read a European village from
+// storeys, a window either side of a door, shutters, and - the part that
+// actually does the work - a steep tiled roof. You read a European village from
 // four hundred metres away off a run of terracotta pitches against a hillside,
 // and not at all off anything at ground level, so the roof gets its own texture
 // and the walls get one with three windows across it instead of eight.
@@ -1080,7 +1080,7 @@ function makeCottage() {
       // Glass is DARK in the base map whether the room behind it is lit or not,
       // and the warm rectangle lives only in the emissive map. The city facade
       // paints its lit windows pale in both, which is right for a tower at dusk
-      // and wrong for a cottage at nine in the morning — every village came out
+      // and wrong for a cottage at nine in the morning - every village came out
       // with its lights on in full sun.
       const gl = g.createLinearGradient(0, wy, 0, wy + wh);
       gl.addColorStop(0, '#59636e');                            // sky in the top pane
@@ -1189,7 +1189,7 @@ function soup() {
 // One house, built at the origin with the ridge running along X and the road
 // off to -Z. Returns the walls and the roof separately because they are two
 // materials; the caller merges each pile per chunk.
-// `rise` is the height of the ridge above the eaves — 0.5 of the half-depth is
+// `rise` is the height of the ridge above the eaves - 0.5 of the half-depth is
 // a 45-degree pitch, which is where northern Europe lives because of the snow.
 function villageHouse(w, h, d, rise, wall, roofCol) {
   const W = w / 2, D = d / 2, OW = W + 0.28, OD = D + 0.34;   // eaves overhang
@@ -1250,7 +1250,7 @@ const postGeo = new THREE.BoxGeometry(0.10, 0.95, 0.10);
 const capGeo = new THREE.BoxGeometry(0.115, 0.13, 0.115);
 // A wind-bent conifer: trunk plus two stacked cones, welded into one geometry so
 // a whole chunk's worth is still a single instanced draw. Trees are what give
-// the middle distance a scale — without something of known height between the
+// the middle distance a scale - without something of known height between the
 // verge and the horizon, a kilometre of hills reads as a few hundred metres.
 const treeGeo = (() => {
   const trunk = new THREE.CylinderGeometry(0.10, 0.17, 1.6, 5);
@@ -1281,7 +1281,7 @@ const OFFS = [0, 0.6, 2, 4.5, 9, 19, 37, 73, 130, 220, 345, 525, 755];
 // road's own normal. Past a hundred metres or so that is wrong, and visibly so:
 // through a 260 m corner the rings on the inside all aim at the centre of the
 // turn, pile up on each other and then cross straight through it, so the far
-// hillside is pleated into a rosette of creases that swings about as you drive —
+// hillside is pleated into a rosette of creases that swings about as you drive -
 // and the ring that has crossed over comes out the far side of the road and
 // lands on the carriageway.
 //
@@ -1290,7 +1290,7 @@ const OFFS = [0, 0.6, 2, 4.5, 9, 19, 37, 73, 130, 220, 345, 525, 755];
 // matters: how much bend that term can put into the fan. A term of amplitude A
 // and frequency w bends the fan by about A*w*D over a reach D, and holding each
 // of the four to FAN_K radians holds the whole fan well inside the fold. Near
-// the road nothing changes — the slowest term is still at 0.98 out at 130 m — so
+// the road nothing changes - the slowest term is still at 0.98 out at 130 m - so
 // the verge, the shoulder and the cutting follow the road exactly, which is the
 // entire reason the terrain is built as rings and not as a grid.
 const FAN_K = 0.30;
@@ -1318,8 +1318,8 @@ const sageCol = new THREE.Color(0x5c5a35);     // grey-green scrub
 const BUSHES = 640;
 
 // The height of the terrain MESH at a point, which is not the same thing as the
-// height the terrain formula gives you there. The ribbon is a coarse fan — the
-// outer rings are hundreds of metres apart — so between two rings the surface is
+// height the terrain formula gives you there. The ribbon is a coarse fan - the
+// outer rings are hundreds of metres apart - so between two rings the surface is
 // a straight line, and the formula's value in the middle can sit metres above or
 // below it. Anything placed by formula therefore floats or sinks; this
 // interpolates the same four vertices the triangle is actually made of.
@@ -1340,7 +1340,7 @@ function groundAt(s, side, dist) {
     const p = pts[k0 + a], sr = (k0 + a) * SEG;
     const e = edgeAt(sr, side);
     for (let b = 0; b < 2; b++) {
-      // fanHeading, not p.heading — these have to be the four vertices the
+      // fanHeading, not p.heading - these have to be the four vertices the
       // triangle is actually made of, and out past a couple of hundred metres
       // those are not where the road's normal would put them
       const fh = fanHeading(sr, j + b), off = e + OFFS[j + b];
@@ -1350,8 +1350,8 @@ function groundAt(s, side, dist) {
   }
   return h;
 }
-// Where a point on the terrain actually IS. Ring space — arc length, which side,
-// how far out — is how everything on the ground is placed, and turning that back
+// Where a point on the terrain actually IS. Ring space - arc length, which side,
+// how far out - is how everything on the ground is placed, and turning that back
 // into world x/z means going through the fan rather than stepping along the
 // road's normal, or anything more than a hundred metres out is planted somewhere
 // the ground is not. Returns a shared object: read it before calling again.
@@ -1395,7 +1395,7 @@ const CROPS = [
   new THREE.Color(0x5f7038), new THREE.Color(0x94904e),
 ];
 // Which field a point on the terrain belongs to. Fields are laid out in ring
-// space — a block of arc length by a band of rings — because that is the grid
+// space - a block of arc length by a band of rings - because that is the grid
 // the mesh is already built on, so a boundary lands exactly on a row of vertices
 // and comes out as an edge rather than a gradient. FIELD_BLK is the length of a
 // field along the road; the bands are the ring gaps themselves, which is why the
@@ -1426,7 +1426,7 @@ function buildChunk(ci) {
   const nR = k => lanesAt(sAt(k)).r;
 
   { // Road ribbon. One mesh now rather than one per marking type, because the
-    // markings have moved out of the texture — a texture stretched across the
+    // markings have moved out of the texture - a texture stretched across the
     // width cannot paint four lines on one stretch and one on the next.
     const pos = new Float32Array(n * 6), uv = new Float32Array(n * 4), idx = [];
     for (let k = 0; k < n; k++) {
@@ -1517,7 +1517,7 @@ function buildChunk(ci) {
   }
 
   { // The central barrier, wherever the carriageways are divided. A three-plane
-    // profile — near face, top, far face — which is all a New Jersey barrier
+    // profile - near face, top, far face - which is all a New Jersey barrier
     // needs to be from a car doing 200.
     const segs = [];
     let k0 = 0;
@@ -1554,8 +1554,8 @@ function buildChunk(ci) {
   }
 
   { // terrain, one ribbon per side, measured out from the edge of the tarmac
-    // Two passes, and the reason is the fields. A field has a hard edge — that
-    // is the entire visual idea of farmed country — and a hard edge needs the
+    // Two passes, and the reason is the fields. A field has a hard edge - that
+    // is the entire visual idea of farmed country - and a hard edge needs the
     // vertices along it to carry two different colours at once, so every ring
     // has to exist twice, once for the band inside it and once for the band
     // outside. Split geometry shaded on its own, though, creases at every one of
@@ -1599,8 +1599,8 @@ function buildChunk(ci) {
         const farm = farmAt(vnoise(sAt(k) * 0.00021, 3.1));
         for (let b = 0; b < bands; b++) {
           // Is this band a field, or is it the verge? The first few rings are
-          // the road's own edge — gravel into mown grass into whatever grows
-          // there — and that has to stay a smooth gradient, so those bands keep
+          // the road's own edge - gravel into mown grass into whatever grows
+          // there - and that has to stay a smooth gradient, so those bands keep
           // reading their colour per ring. Everything from 9 m out is a field.
           // 19 m out, not 9. The first band past the verge is what you actually
           // drive alongside for hours, and one flat colour filling the bottom
@@ -1664,17 +1664,17 @@ function buildChunk(ci) {
 
   // Only where the country is properly farmed. At 0.12 a boundary could appear
   // on ground that was still seven-eighths moor, so you got drystone walls
-  // ruled across a hillside of gorse and boulders — which is what made them
+  // ruled across a hillside of gorse and boulders - which is what made them
   // read as boxes somebody had left lying about rather than as field edges.
   if (FARM > 0.5 && !CITY && !FOREST) {
     // The boundaries. A patchwork painted on flat ground is wallpaper; what
-    // makes farmed country read as farmed is that every field edge stands up —
+    // makes farmed country read as farmed is that every field edge stands up -
     // a hedge you cannot see over, or a wall of dry stone where the soil ran
     // out. They are run along the terrain rings and across them at the field
     // blocks, which is exactly where the colour changes, so the geometry and the
     // paint agree without either of them knowing the other exists.
     const hedges = [], walls = [];
-    // 19, 37 and 73 m out. Not the 9 m ring — a road has a verge before the
+    // 19, 37 and 73 m out. Not the 9 m ring - a road has a verge before the
     // first field starts, and a wall that close reads as a crash barrier. And
     // not the 130 and 220 m ones either: a hedge is two pixels tall out there,
     // so all they contributed was five ruled lines stacking up the side of every
@@ -1706,7 +1706,7 @@ function buildChunk(ci) {
     };
     for (const side of [-1, 1]) for (const j of RINGS) {
       const D = OFFS[j];
-      // Stone up on the thin ground, hedge down in the fields — which is what
+      // Stone up on the thin ground, hedge down in the fields - which is what
       // the amount of relief already says, so it comes from there.
       const stone = hash2(j * 4.7 + side * 3.1, 91.3) > 0.62;
       const into = stone ? walls : hedges;
@@ -1755,12 +1755,12 @@ function buildChunk(ci) {
     if (walls.length) group.add(new THREE.Mesh(mergeGeos(walls), dryStoneMat));
   }
 
-  if (!CITY) { // scrub — the whole chunk's vegetation in one draw call
+  if (!CITY) { // scrub - the whole chunk's vegetation in one draw call
     // Gorse grows where nothing else will. A ploughed field has none of it, and
     // leaving the moorland scatter running through the farmland was the single
     // thing stopping the fields reading as fields: a patchwork with boulders and
     // heather strewn over it is not a patchwork, it is a moor that has been
-    // painted green. So the whole moorland kit — scrub, loose stone, boulders —
+    // painted green. So the whole moorland kit - scrub, loose stone, boulders -
     // thins out as the country becomes farmed, and the hedges take over.
     const SCRUB = Math.round((FOREST ? BUSHES + 260 : BUSHES) * (1 - FARM * 0.88));
     const im = new THREE.InstancedMesh(bushGeo, bushMat, Math.max(1, SCRUB));
@@ -1772,12 +1772,12 @@ function buildChunk(ci) {
       const u = rnd();
       // Measured out from the EDGE of the tarmac, not the centreline. On a
       // five-lane stretch the tarmac reaches 10.8 m and the old fixed 8 m put
-      // gorse in the outside lane — which the car then bounced off.
+      // gorse in the outside lane - which the car then bounced off.
       // Pushed out past the houses where there are houses: gorse in the front
       // garden of every cottage in the village was not a village.
       const near = edgeAt(s, side) + (FOREST ? 0.8 : 1.4) + (builtUp(s) > 0.3 ? 42 : 0);
       const dist = near + u * u * (FOREST ? 130 : 320);
-      // scatter ALONG the road, never across it — a lateral jitter this size
+      // scatter ALONG the road, never across it - a lateral jitter this size
       // would plant bushes on the tarmac
       const j = (rnd() - 0.5) * 9;
       const g = fanPoint(s + j, side, dist);
@@ -1824,7 +1824,7 @@ function buildChunk(ci) {
     group.add(im);
   }
 
-  if (!CITY) { // Trees — well back from the verge, in loose stands rather than
+  if (!CITY) { // Trees - well back from the verge, in loose stands rather than
     // scattered evenly, because nothing on a hillside grows on a uniform
     // distribution.
     // Farmed country is cleared country: what is left is a copse in a corner and
@@ -1846,7 +1846,7 @@ function buildChunk(ci) {
       left--;
       // Scattered in the ROAD's frame rather than in world x/z. Doing it in world
       // coordinates means a tree can land anywhere within 17 m of the stand
-      // centre — including on the carriageway, which mattered not at all until
+      // centre - including on the carriageway, which mattered not at all until
       // trees became solid, and then made the forest undriveable. Here the
       // across-road part can simply be clamped off the tarmac.
       const along = (rnd() - 0.5) * 34, across = (rnd() - 0.5) * 34;
@@ -1871,7 +1871,7 @@ function buildChunk(ci) {
     group.add(im);
   }
 
-  if (!CITY) { // boulders — sparse, and the only thing out here you can hit
+  if (!CITY) { // boulders - sparse, and the only thing out here you can hit
     for (let t = 0; t < 5; t++) {
       if (rnd() < FARM * 0.9) continue;            // nobody farms round a boulder
       const ki = Math.floor(rnd() * CHUNK), s = sAt(ki);
@@ -1904,12 +1904,12 @@ function buildChunk(ci) {
   }
 
   { // Anywhere built up. In the city that is everywhere; out of town it is the
-    // village you come through every few kilometres — and out of town it is a
+    // village you come through every few kilometres - and out of town it is a
     // different BUILDING, not the same box scaled down. A city block is a slab
     // with a flat top; a village is two storeys under a steep tiled roof, close
     // to the road, in a row. The two branches share the layout loop and nothing
     // else. Merged per chunk rather than instanced, because instancing forces
-    // one geometry and therefore one set of UVs — exactly the thing
+    // one geometry and therefore one set of UVs - exactly the thing
     // buildingBox() and villageHouse() both exist to avoid.
     const shells = [], cots = [], roofs = [], poles = [], lamps = [], kerbs = [], fronts = [];
     const tint = new THREE.Color(), rtint = new THREE.Color();
@@ -1919,7 +1919,7 @@ function buildChunk(ci) {
     // scattered near a road", and it costs two numbers.
     const SET = { '-1': 5.5 + rnd() * 4, '1': 5.5 + rnd() * 4 };
     // A village gets one church, at the densest point of it, and it is the thing
-    // you actually navigate by — you see the spire over the roofs long before
+    // you actually navigate by - you see the spire over the roofs long before
     // you can see whether there is anything else there.
     let churchAt = -1, churchBest = 0.72;
     if (!CITY) for (let k = 4; k < CHUNK - 4; k++) {
@@ -1949,7 +1949,7 @@ function buildChunk(ci) {
           b.translate(x, groundAt(s, side, off) + tall / 2 - 1.0, z);
           shells.push(b);
           // Solid, as an oriented box rather than a circle. A circle round a
-          // building is wrong in both directions at once — it leaves the corners
+          // building is wrong in both directions at once - it leaves the corners
           // unprotected so you clip into them, and it sticks out past the middle
           // of every wall so you bounce off thin air. The box axes are the
           // road's, because that is what the building was rotated to.
@@ -1994,7 +1994,7 @@ function buildChunk(ci) {
                       ax: Math.sin(p.heading), az: -Math.cos(p.heading) });
         // Something along the frontage. Villages are not houses standing in a
         // field: there is always a garden wall or a hedge between the front door
-        // and the carriageway. Knee to waist high — any taller and a run of them
+        // and the carriageway. Knee to waist high - any taller and a run of them
         // reads as crash barrier, which is exactly what the first version did.
         if (rnd() < 0.62) {
           const fw = fanPoint(s, side, edgeAt(s, side) + 1.6 + SET[side] * 0.5);
@@ -2028,8 +2028,8 @@ function buildChunk(ci) {
       }
     }
     // Far settlements: a hamlet across the valley, hundreds of metres off the
-    // road and never reached. They cost almost nothing — a dozen little roofs
-    // with no collision — and they are what makes the middle distance look
+    // road and never reached. They cost almost nothing - a dozen little roofs
+    // with no collision - and they are what makes the middle distance look
     // inhabited rather than like scenery that stops existing past the verge.
     if (!CITY) for (let f = 0; f < 3; f++) {
       if (rnd() > 0.40) continue;
@@ -2063,7 +2063,7 @@ function buildChunk(ci) {
     if (fronts.length) group.add(new THREE.Mesh(mergeGeos(fronts), hedgeMat));
 
     // Kerbs: a raised strip either side, which is what actually tells you where
-    // the carriageway ends once there is no verge to read. City only — a village
+    // the carriageway ends once there is no verge to read. City only - a village
     // on a moorland road has a verge, not a pavement.
     if (CITY) for (const side of [-1, 1]) {
       const rows = CHUNK + 1;
@@ -2096,7 +2096,7 @@ function buildChunk(ci) {
       const p = pts[i0 + k];
       const rx = Math.cos(p.heading), rz = Math.sin(p.heading);
       const side = (k / 12 | 0) % 2 ? 1 : -1;
-      // Out beyond the EDGE of the tarmac, on the pavement — not at a fixed
+      // Out beyond the EDGE of the tarmac, on the pavement - not at a fixed
       // distance from the centreline. A column standing 7.4 m out is on the
       // verge of a two-lane road and in the outside lane of a five-lane one.
       const off = (side < 0 ? eL(k) : eR(k)) + 1.25;
@@ -2137,15 +2137,15 @@ function disposeChunk(ci) {
 
 // ================= car =================
 // A Ferrari F40: 4.76 m long, 1.98 wide, 1.14 tall over a 2.62 m wheelbase, and
-// almost every one of those numbers is the real car's. The shape is a wedge —
+// almost every one of those numbers is the real car's. The shape is a wedge -
 // flat low nose, cabin shoved right forward, then a long engine deck chopped
-// off square — with the wing standing over the tail.
+// off square - with the wing standing over the tail.
 const car = new THREE.Group();
 car.rotation.order = 'YXZ';
 // Two containers, and which one a part belongs to is the difference between a
 // car that leans and a car that pole-vaults. `car` follows the ground: pitch and
 // roll from the slope under the wheels, and everything rides it. `chassis` adds
-// the body's own lean on its springs under braking and cornering — that is the
+// the body's own lean on its springs under braking and cornering - that is the
 // SPRUNG mass, so only bodywork goes in it. Wheels are unsprung: they stay on
 // the road while the body moves above them, which is the entire point of a
 // suspension, so they live in `axles` and see the ground rotation only.
@@ -2187,7 +2187,7 @@ function mergeGeos(list, attrs) {
 }
 
 // Side profile, extruded across the car and bevelled. A stack of boxes never
-// reads as a car however you paint it — the silhouette is the whole game.
+// reads as a car however you paint it - the silhouette is the whole game.
 // Shape coords are (length, height); rotateY maps +length onto -Z, which is
 // the direction the wheel layouts below already call "front".
 const extrude = (points, depth, bevel) => {
@@ -2200,14 +2200,14 @@ const extrude = (points, depth, bevel) => {
     : { depth, bevelEnabled: false });
   g.rotateY(Math.PI / 2);
   // The bevel extends the extrusion equally at both ends (-t .. depth+t), so
-  // the centre is depth/2 either way — adding the bevel here would push the
+  // the centre is depth/2 either way - adding the bevel here would push the
   // whole body off-centre and give the car a wider left side than right.
   g.translate(-depth / 2, 0, 0);
   return g;
 };
 
 // ExtrudeGeometry triangulates the two flat side faces as a coarse fan across
-// the whole profile — eleven triangles for the side of a car. Scaling those
+// the whole profile - eleven triangles for the side of a car. Scaling those
 // vertices by a section curve would drag metre-long triangles into whatever
 // shape their three corners happened to land in, and the flanks come out as
 // facets that bear no relation to the curve. So refine first: splitting every
@@ -2279,8 +2279,8 @@ const rimSide = new THREE.MeshStandardMaterial({ color: 0x27282b, roughness: 0.4
 
 const wheels = [], steerHolders = [];
 
-// One car out of one spec. A straight extrusion is a slab — constant width top
-// to bottom, nose to tail — so every shell is warped by the car's own section
+// One car out of one spec. A straight extrusion is a slab - constant width top
+// to bottom, nose to tail - so every shell is warped by the car's own section
 // curve: pinched at the sills, widest across the arches, pulled back toward the
 // roof, and tapered in plan at the ends. Passing the SAME curve through the
 // glass is what keeps it proud of the body at every height.
@@ -2295,7 +2295,7 @@ function buildCar(spec) {
     return geo;
   };
 
-  // Paint is a dielectric with a lacquer over it, not a metal — faking it with
+  // Paint is a dielectric with a lacquer over it, not a metal - faking it with
   // metalness tints the specular the body colour and kills the highlight, so
   // this is the one place in the file worth a physical material and a clearcoat.
   const paint = new THREE.MeshPhysicalMaterial({
@@ -2307,7 +2307,7 @@ function buildCar(spec) {
   // Glass is several flat slabs rather than one shell over the whole cabin,
   // because on both of these cars the roof is body colour and a single dark
   // greenhouse would paint it out. The raked panels are the body profile pushed
-  // 0.11 along their outward normal — 0.09 to clear the bevel (see below) and
+  // 0.11 along their outward normal - 0.09 to clear the bevel (see below) and
   // 0.02 to stand proud of it; the side windows only have to beat the body in
   // width, so they stay put and take their clearance from the extrusion depth.
   group.add(new THREE.Mesh(mergeGeos(spec.glass.map(p => shell(p, spec.glassWidth, false))), glassMat));
@@ -2357,8 +2357,8 @@ function buildCar(spec) {
 
 const CARS = [{
   // A Ferrari F40: 4.76 m long, 1.98 wide, 1.14 tall over a 2.62 m wheelbase,
-  // and almost every one of those is the real car's. The shape is a wedge —
-  // flat low nose, cabin shoved right forward, engine deck chopped off square —
+  // and almost every one of those is the real car's. The shape is a wedge -
+  // flat low nose, cabin shoved right forward, engine deck chopped off square -
   // with the wing standing over the tail.
   name: 'FERRARI F40', blurb: '1987 · MID ENGINE',
   gears: [3.21, 2.11, 1.46, 1.09, 0.85], final: 3.90, redline: 7750, idle: 950,
@@ -2417,7 +2417,7 @@ const CARS = [{
       box(0.14, 0.04, 0.05, sx * 0.98, 0.86, -0.96, dark);   // mirror stalk
       box(0.09, 0.11, 0.16, sx * 1.07, 0.90, -0.98, dark);   // mirror
       // Headlamps popped up. Hidden on the real car, but hidden lamps at dusk
-      // are just a smooth nose — raised, they are the front end's only detail.
+      // are just a smooth nose - raised, they are the front end's only detail.
       box(0.34, 0.14, 0.30, sx * 0.50, 0.85, -1.780, dark);
       box(0.30, 0.10, 0.05, sx * 0.50, 0.85, -1.945, whiteLamp);
       box(0.22, 0.12, 0.10, sx * 0.40, 0.41, -2.500, dark);  // outer nose intake
@@ -2428,8 +2428,8 @@ const CARS = [{
   },
 }, {
   // A BMW M2: 4.80 m long, 1.89 wide, 1.40 tall over a 2.75 m wheelbase. Every
-  // proportion is the opposite of the Ferrari's — long bonnet ahead of a cabin
-  // set well back, an upright glasshouse, a notchback boot — which is the whole
+  // proportion is the opposite of the Ferrari's - long bonnet ahead of a cabin
+  // set well back, an upright glasshouse, a notchback boot - which is the whole
   // point of having two of them.
   name: 'BMW M2', blurb: '2023 · FRONT ENGINE',
   gears: [4.11, 2.32, 1.54, 1.18, 0.98, 0.85], final: 4.79, redline: 7200, idle: 800,
@@ -2452,8 +2452,8 @@ const CARS = [{
     [[ 0.420, 1.260], [-0.640, 1.280], [-1.360, 1.100], [-1.220, 0.990], [ 0.520, 0.980]],
     [[-1.245, 1.351], [-1.765, 1.121], [-1.685, 1.031], [-1.165, 1.261]],
   ],
-  // Far less tumblehome than the Ferrari — the glasshouse stands nearly upright
-  // — and a blunt nose that barely narrows, because it has two grilles to fit.
+  // Far less tumblehome than the Ferrari - the glasshouse stands nearly upright
+  // - and a blunt nose that barely narrows, because it has two grilles to fit.
   section: (y, z) => {
     const waist = 0.72 + 0.28 * smoothstep(0.30, 0.74, y)
                        - 0.24 * smoothstep(1.00, 1.32, y);
@@ -2485,12 +2485,12 @@ const CARS = [{
   },
 }, {
   // A Tesla Model 3: 4.69 m long, 1.85 wide, 1.44 tall over a 2.88 m wheelbase.
-  // The shape is the giveaway and it is nothing like the other two — one
+  // The shape is the giveaway and it is nothing like the other two - one
   // continuous arc from the nose over the roof to the tail, no grille at all
   // because there is no radiator to feed, and a cabin pushed forward over a
   // floor full of battery.
   name: 'TESLA MODEL 3', blurb: '2023 · ELECTRIC',
-  // one gear, and FINAL still applies to it — EV_RATIO is multiplied by this
+  // one gear, and FINAL still applies to it - EV_RATIO is multiplied by this
   gears: [1], final: 4.05, redline: 7600, idle: 0,
   stats: '1850 kg · one gear, no clutch<br>everything it has, from a standstill',
   wb: 2.88, track: 0.79, axle: 1.44, mass: 1850, torque: 1250, shadow: [2.8, 5.3],
@@ -2511,7 +2511,7 @@ const CARS = [{
     [[-1.360, 1.376], [-2.000, 1.106], [-1.920, 1.026], [-1.280, 1.286]],
   ],
   // Slab-sided by comparison with the Ferrari, and the roof is barely narrower
-  // than the hips — a family car, however quick it is.
+  // than the hips - a family car, however quick it is.
   section: (y, z) => {
     const waist = 0.74 + 0.26 * smoothstep(0.32, 0.78, y)
                        - 0.22 * smoothstep(1.06, 1.44, y);
@@ -2542,7 +2542,7 @@ const CARS = [{
 }, {
   // A boxy 4x4: 4.58 m long, 2.00 wide and 1.97 TALL over a 2.59 m wheelbase.
   // Almost twice the height of the Ferrari, and the point of it is that nothing
-  // else here is shaped remotely like this — flat panels, vertical glass, a roof
+  // else here is shaped remotely like this - flat panels, vertical glass, a roof
   // you could stand a drink on, and it leans like a bus.
   name: 'LAND ROVER 90', blurb: '1990 · FOUR WHEEL DRIVE',
   gears: [3.69, 2.13, 1.40, 1.00, 0.83], final: 5.83, redline: 5000, idle: 700,
@@ -2594,7 +2594,7 @@ const CARS = [{
 }, {
   // A muscle coupe: 4.79 m long, 1.92 wide, 1.38 tall over a 2.72 m wheelbase.
   // Long bonnet, cabin pushed right back over the rear axle, fastback roof into
-  // a short high deck — the opposite proportion to the mid-engined Ferrari.
+  // a short high deck - the opposite proportion to the mid-engined Ferrari.
   name: 'MUSCLE COUPE', blurb: '1969 · FRONT ENGINE V8',
   gears: [2.78, 1.93, 1.36, 1.00], final: 3.88, redline: 6200, idle: 750,
   stats: '1600 kg · enormous torque, no grip<br>it would rather be sideways',
@@ -2702,7 +2702,7 @@ const CARS = [{
 }, {
   // An open two-seater: 4.06 m long, 1.74 wide, and 1.22 tall to the top of a
   // windscreen you can see over. There is no roof to model, because there is no
-  // roof — the profile runs flat from the scuttle to the rear deck, straight
+  // roof - the profile runs flat from the scuttle to the rear deck, straight
   // through where every other car here has a cabin. That one absence is the
   // whole silhouette, and it is the only one of the eight you sit IN rather
   // than under.
@@ -2727,7 +2727,7 @@ const CARS = [{
     [[ 0.46, 0.94], [ 0.10, 1.22], [ 0.02, 1.15], [ 0.38, 0.87]],
   ],
   // Round-shouldered and pinched at both ends, the way a body beaten over a
-  // buck comes out. Almost no tumblehome up top — with no roof to pull in
+  // buck comes out. Almost no tumblehome up top - with no roof to pull in
   // toward, the flanks stay full width right to the waist rail.
   section: (y, z) => {
     const waist = 0.72 + 0.28 * smoothstep(0.22, 0.62, y)
@@ -2767,7 +2767,7 @@ const CARS = [{
     disc(0.09, 0.04, 0, 1.02, 0.98, chrome);                     // filler cap on the deck
   },
 }, {
-  // 4.60 m long, 2.04 wide and 1.14 tall over a 2.71 m wheelbase — as wide as
+  // 4.60 m long, 2.04 wide and 1.14 tall over a 2.71 m wheelbase - as wide as
   // the Land Rover and a full 0.8 m lower. Geared for 420 km/h, which is 90 more
   // than the F40 and about 180 more than the road will ever give you: the point
   // is that it is still pulling where everything else has stopped.
@@ -2778,7 +2778,7 @@ const CARS = [{
   // A curve to match the rev range instead of the default one: peak at 5200 and
   // wide enough that it is still making three quarters of it against the
   // limiter. And it drives all four wheels, because 1100 Nm through two of them
-  // is not a fast car, it is a burnout — the traction cap, not the engine, is
+  // is not a fast car, it is a burnout - the traction cap, not the engine, is
   // what every rear-driven car here is actually limited by off the line.
   tqPeak: 5200, tqSpan: 5200, drive: 0.92,
   paint: 0xd8560e, gloss: 0.22, flake: 0.14,
@@ -2875,7 +2875,7 @@ scene.add(car);
 // ================= car selection =================
 // The handful of numbers the physics needs that differ between the two. Mass is
 // the interesting one: it divides out of the grip limit, so both cars corner at
-// the same g — it only changes how hard the engine has to push, which is exactly
+// the same g - it only changes how hard the engine has to push, which is exactly
 // the difference between six hundred kilos of Ferrari and of BMW.
 let carIndex = 0, picking = true;
 let CAR_WB = 2.62, CAR_TRACK = 0.80, CAR_AXLE = 1.31, IS_EV = false;
@@ -2903,7 +2903,7 @@ function selectCar(i) {
   if (IS_EV) { manual = false; if (gear > 1) gear = 1; engineOn = true; blown = false; }
   pend.box = manual ? 1 : 0;
   // What the autopilot will now aim for: this car's geared maximum, spelled out
-  // the same way the picker card spells it, and for the same reason — this runs
+  // the same way the picker card spells it, and for the same reason - this runs
   // before the drivetrain constants below have been initialised.
   CRUISE = LIMITER * (Math.PI / 30) * 0.38 / ((IS_EV ? 1.05 : RATIOS[RATIOS.length - 1]) * FINAL);
   shadow.scale.set(s.shadow[0] / 2.9, s.shadow[1] / 5.5, 1);
@@ -2928,7 +2928,7 @@ function closePicker() {
 // Conditions are a palette and the handful of numbers that follow from it.
 // Nothing is rebuilt: the sky uniforms and the fog hold references to the colour
 // objects, so writing through them regrades the scene in place, and the only
-// per-condition asset — the prefiltered environment map — was made up front.
+// per-condition asset - the prefiltered environment map - was made up front.
 function applyConditions(i) {
   condIndex = i;
   const c = CONDITIONS[i], city = TERRAIN[terrainIndex].city;
@@ -2940,13 +2940,13 @@ function applyConditions(i) {
   sun.color.setHex(c.sunCol); sun.intensity = c.sunPower;
   hemi.color.setHex(c.hemiSky); hemi.groundColor.setHex(c.hemiGround); hemi.intensity = c.hemiInt;
   scene.fog.color.copy(SKY_HAZE);
-  // A city closes the horizon in whatever the weather — you cannot see a
+  // A city closes the horizon in whatever the weather - you cannot see a
   // kilometre down a street, and the moor beyond the blocks should not be there.
   scene.fog.density = c.fog * (city ? 2.2 : TERRAIN[terrainIndex].forest ? 1.8 : 1);
   scene.environment = envMaps[i];
   renderer.toneMappingExposure = c.exposure;
   terrainMat.color.setHex(c.ground);
-  // Wet tarmac is darker AND far glossier — losing the diffuse and gaining a
+  // Wet tarmac is darker AND far glossier - losing the diffuse and gaining a
   // reflection at once is the whole reading of a wet road.
   for (const m of roadMats) {
     // Wet tarmac is dark and mirror-like; snow on it is the exact opposite, pale
@@ -2967,7 +2967,7 @@ function applyConditions(i) {
   lampMat.emissiveIntensity = c.exposure > 1.1 ? 0.35 : 1.7;
   rainMesh.visible = !!c.wet;
   // Stated per condition rather than inferred from the exposure, which was the
-  // wrong signal — the morning palette has a LOWER exposure than the evening one,
+  // wrong signal - the morning palette has a LOWER exposure than the evening one,
   // so the lights came on in the sunshine and off at dusk. H overrides either way.
   setLights(!!c.lights);
   CONDITION_GRIP = c.grip;
@@ -2986,7 +2986,7 @@ function applyTerrain(i) {
   rebuildFan();      // a straighter road can carry the terrain fan further out
   if (reshape) {
     // The spline is a different SHAPE now, and points are generated once and
-    // kept — so the whole thing has to be built again from the start and the car
+    // kept - so the whole thing has to be built again from the start and the car
     // put back on it. Distance travelled survives; the road under it does not.
     pts.length = 0;
     gen.x = 0; gen.z = 0; gen.heading = 0;
@@ -2998,7 +2998,7 @@ function applyTerrain(i) {
   lastChunk = -9999;
   applyConditions(condIndex);      // fog and lighting depend on the terrain too
 }
-// How much traffic, on the other hand, costs nothing to change — updateTraffic
+// How much traffic, on the other hand, costs nothing to change - updateTraffic
 // adds and removes cars to match, so there is no reason to rebuild the world.
 function applyTraffic(i) { trafficIndex = i; }
 
@@ -3079,14 +3079,14 @@ function paintPicker() {
   pickDesc.innerHTML = PICK[pickRow].list[pend[PICK[pickRow].key]].stats;
 }
 // Applied the moment you land on it, so the scene behind the overlay IS the
-// preview — you choose by looking at the thing rather than at a description.
+// preview - you choose by looking at the thing rather than at a description.
 function applyPending() {
   if (pend.car !== carIndex) selectCar(pend.car);
   if (pend.terrain !== terrainIndex) applyTerrain(pend.terrain);
   if (pend.traffic !== trafficIndex) applyTraffic(pend.traffic);
   if (pend.cond !== condIndex) applyConditions(pend.cond);
   // An electric car refuses manual, so read the answer back rather than assuming
-  // it took — otherwise the row would sit there claiming something untrue.
+  // it took - otherwise the row would sit there claiming something untrue.
   if (!!pend.box !== manual) setManual(!!pend.box);
   pend.box = manual ? 1 : 0;
 }
@@ -3149,7 +3149,7 @@ const trafficMeshes = [];
     im.frustumCulled = false;
     im.count = 0;
     if (tinted) for (let i = 0; i < TRAFFIC_MAX; i++) {
-      // saturated cars are rare in real traffic — mostly white, grey, black
+      // saturated cars are rare in real traffic - mostly white, grey, black
       const r = hash2(i * 3 + 1, i * 5 + 2);
       if (r < 0.62) col.setHSL(0.08 + r * 0.4, 0.03, 0.10 + r * 0.85, THREE.SRGBColorSpace);
       else col.setHSL(r * 1.7 % 1, 0.45, 0.20 + r * 0.2, THREE.SRGBColorSpace);
@@ -3205,8 +3205,8 @@ function laneClear(t, lane) {
 }
 
 // One car's worth of thinking: how far to the thing in front, how fast it is
-// going, and whether there is a better lane to be in. Nothing here is clever —
-// it is a following distance and two lane-change rules — but a road where cars
+// going, and whether there is a better lane to be in. Nothing here is clever -
+// it is a following distance and two lane-change rules - but a road where cars
 // close up, queue behind something slow, pull out, pass and pull back in reads
 // as traffic, and one where they slide along at a fixed speed never does.
 function trafficAI(t, dt) {
@@ -3221,16 +3221,16 @@ function trafficAI(t, dt) {
     const rel = (o.s - t.s) * t.dir;
     if (rel > 0 && rel < gap) { gap = rel; leadSpeed = o.speed; }
   }
-  // The player by lateral distance too — a floored lane index loses them for the
+  // The player by lateral distance too - a floored lane index loses them for the
   // whole of a lane change, which is exactly when somebody runs into the back.
   if (t.dir > 0 && Math.abs(dEst - (t.laneF + 0.5) * LANE_W) < 2.7) {
     const rel = sEst - t.s;
     if (rel > 0 && rel < gap) { gap = rel; leadSpeed = Math.max(0, vLong); }
   }
 
-  // Match the car in front under the same kinematic rule the autopilot uses —
+  // Match the car in front under the same kinematic rule the autopilot uses -
   // the fastest you can be doing now and still be down to its speed by the time
-  // you get there — and brake harder than you accelerate, which is both true of
+  // you get there - and brake harder than you accelerate, which is both true of
   // cars and what stops a queue oscillating its way backwards down the road.
   const want = gap < 1e8
     ? Math.min(t.cruise, Math.sqrt(leadSpeed * leadSpeed + 2 * 6.5 * Math.max(0, gap - 10)))
@@ -3253,7 +3253,7 @@ function trafficAI(t, dt) {
   // Separate from following, and deliberately indifferent to lanes and to which
   // way anybody is going. Following logic only ever looks down its own lane in
   // its own direction, so it will drive straight into a car coming the wrong way
-  // up its side of the road — and until now oncoming traffic considered nothing
+  // up its side of the road - and until now oncoming traffic considered nothing
   // at all, not even the player. Anything within a car's width of our line,
   // ahead of us in the direction we are actually travelling, and closing, gets a
   // time to contact; short enough and it gets everything the brakes have and a
@@ -3334,7 +3334,7 @@ function updateTraffic(dt, fx, fz, rx, rz) {
     if (dd < 7.3 && dd > 1e-4) {
       const dl = Math.sqrt(dd), nx = dx / dl, nz = dz / dl;
       pos.x = x + nx * 2.7; pos.z = z + nz * 2.7;
-      // Split the push into the car's own axes before applying it — a world-space
+      // Split the push into the car's own axes before applying it - a world-space
       // shove into vLat would send you sideways in whatever direction north is.
       const nLong = nx * fx + nz * fz, nLat = nx * rx + nz * rz;
       vLong = vLong * 0.42 + nLong * 4;
@@ -3395,7 +3395,7 @@ function updateRain(dt, vx, vz) {
 // skid marks (pooled)
 const SKIDS = 300;
 const skidGeo = new THREE.PlaneGeometry(0.42, 0.9);
-// soft-edged rather than a hard rectangle — rubber does not have a border
+// soft-edged rather than a hard rectangle - rubber does not have a border
 const skidMat = new THREE.MeshBasicMaterial({
   map: makeBlobTexture(0.85, 0), color: 0x141416, transparent: true, opacity: 0.5, depthWrite: false,
 });
@@ -3436,7 +3436,7 @@ function setManual(on) {
     if (Math.abs(vLong) < 1.5) gear = 0;
   } else {
     clutchTarget = 1;
-    // switching to auto is not a repair — a wrecked engine stays wrecked
+    // switching to auto is not a repair - a wrecked engine stays wrecked
     if (!blown) { engineOn = true; omegaE = Math.max(omegaE, IDLE * RPM2RAD); }
     if (gear <= 0) gear = 1;
   }
@@ -3481,7 +3481,7 @@ addEventListener('keydown', e => {
     shiftTo(want);
   }
   // Cruise control: E sets it to whatever speed you are doing, E again cancels.
-  // A latch rather than a held key — the whole point of one is that you can take
+  // A latch rather than a held key - the whole point of one is that you can take
   // your hands off, and a key you have to keep down for twenty minutes of
   // motorway is a trigger, not a cruise control. What keeps it honest instead is
   // that everything meaning "I am driving again" drops it: the brake, reverse, a
@@ -3502,11 +3502,11 @@ addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 
 // ================= drivetrain =================
 // The engine is a real rotating inertia, not a number lerped toward road speed.
-// Everything the gearbox does — stalling, clutch slip, rev-matching, blowing up
-// on a money shift — falls out of integrating it against the torque the clutch
+// Everything the gearbox does - stalling, clutch slip, rev-matching, blowing up
+// on a money shift - falls out of integrating it against the torque the clutch
 // feeds back from the wheels. Nothing below is a special case.
 // The gearbox is the car, so all of this comes from the spec: how many gears,
-// how they are spaced, what the final drive is, and where it stops revving —
+// how they are spaced, what the final drive is, and where it stops revving -
 // which between them decide the top speed and how it gets there. A Land Rover
 // with five very short gears and a 5000 rpm limit is a different machine from a
 // V8 with five long ones and 7750, and it should not merely be a lighter one.
@@ -3516,16 +3516,16 @@ let IDLE = 850, REDLINE = 7000, LIMITER = 6850, BURST = 8400, REV_CRIT = 7700;
 const WHEEL_R = 0.38;
 const RPM2RAD = Math.PI / 30;
 const CAR_R = 1.1;         // how far the car keeps its middle from anything solid
-const REV_MAX = 2.2;        // m/s — reverse will not select above walking pace
+const REV_MAX = 2.2;        // m/s - reverse will not select above walking pace
 // What the autopilot is aiming for on an open road. This was one number for
-// every car — 66 m/s — which meant the Land Rover was asked for a speed it
+// every car - 66 m/s - which meant the Land Rover was asked for a speed it
 // cannot reach and the hypercar was held to 238 km/h by a constant rather than
 // by anything about the car. It is now the car's own geared maximum, the same
 // figure printed on its card, so "flat out" means flat out: whatever the engine
 // and the gearing will actually give. Corners, traffic and grip still cut it
-// down — this is only the ceiling, and for most cars drag reaches it first.
+// down - this is only the ceiling, and for most cars drag reaches it first.
 let CRUISE = 66;
-// PEAK_TQ and MASS live with the car specs — they are the two numbers that
+// PEAK_TQ and MASS live with the car specs - they are the two numbers that
 // actually differ between a 1100 kg Ferrari and a 1700 kg BMW.
 const IE = 0.42;            // engine + flywheel inertia, kg m^2
 const CLUTCH_CAP = 950;     // Nm the clutch can hold when fully engaged
@@ -3534,17 +3534,17 @@ const EFF = 0.92;
 const GRIP_PEAK = 1.45;     // static grip over sliding grip, on the shock of a dumped clutch
 
 let gear = 1;                    // -1 reverse, 0 neutral, 1..6
-let omegaE = IDLE * RPM2RAD;     // engine speed, rad/s — the actual state
+let omegaE = IDLE * RPM2RAD;     // engine speed, rad/s - the actual state
 let rpm = IDLE;
 let clutch = 1;                  // engagement: 1 = pedal up (locked), 0 = pedal in
 let clutchTarget = 1;
-let engineOn = true, blown = false;   // blown is terminal — only respawn() clears it
+let engineOn = true, blown = false;   // blown is terminal - only respawn() clears it
 let seize = 0;                   // seconds the wrecked engine holds the driven axle
 let grind = 0, starter = 0, shiftCut = 0, noRev = 0;
 
 // An electric car has one reduction gear and that is the whole gearbox. Chosen
-// so the motor is turning about 7400 rpm at 250 km/h — under BURST, so the
-// over-rev that destroys the V8 simply cannot happen — and so the limiter,
+// so the motor is turning about 7400 rpm at 250 km/h - under BURST, so the
+// over-rev that destroys the V8 simply cannot happen - and so the limiter,
 // which is a real thing on an EV too, arrives at a sensible top speed.
 const EV_RATIO = 1.05, EV_BASE = 2600;
 // what the dial reads full scale on, in kilowatts
@@ -3557,7 +3557,7 @@ function ratio(g) {
 // The shift flash used to be a transform written from the render loop for a
 // third of a second after every change. Scaling 84px of shadowed text by a
 // fresh fraction each frame makes the browser re-rasterise the glyph and its
-// blur on the main thread every one of those frames — which is precisely when
+// blur on the main thread every one of those frames - which is precisely when
 // you shift, and precisely where the stutter came from. Handed to the
 // compositor as a one-shot animation it costs nothing per frame.
 const gearFlash = () => el.gear.animate(
@@ -3566,14 +3566,14 @@ const gearFlash = () => el.gear.animate(
 );
 
 // In manual the clutch pedal must be down for the dogs to mesh. Pulling OUT into
-// neutral is always allowed — that works without a clutch on a real car too.
+// neutral is always allowed - that works without a clutch on a real car too.
 // Gate on the raw pedal rather than the smoothed engagement, so a clutch and a
 // gear pressed on the same frame still counts as a proper shift.
 function shiftTo(g) {
   if (g === gear) return;
   if (IS_EV) { gear = clamp(g, -1, 1); gearFlash(); return; }
   // Reverse has no synchro. Above walking pace the dogs simply crash and you get
-  // nothing — which beats letting the clutch drag the crank backwards to zero.
+  // nothing - which beats letting the clutch drag the crank backwards to zero.
   if (g < 0 && vLong > REV_MAX) {
     grind = 0.5; noRev = 0.5;
     if (gear !== 0) { gear = 0; gearFlash(); }
@@ -3598,7 +3598,7 @@ function engineTorque(r, throttle) {
   let t = PEAK_TQ * clamp(1 - Math.pow((r - TQ_PEAK) / TQ_SPAN, 2), 0.30, 1) * throttle;
   // Idle governor: cancel friction exactly, plus a proportional pull toward
   // IDLE, so the engine settles precisely at idle instead of sagging under its
-  // own drag. It is far too weak to save you from a load — that is the point.
+  // own drag. It is far too weak to save you from a load - that is the point.
   if (r < 1600) t += clamp(engineDrag(r) + (IDLE - r) * 0.14, 0, 120);
   return t;
 }
@@ -3619,7 +3619,7 @@ let bodyPitch = 0, bodyRoll = 0, suspPitch = 0, suspRoll = 0;
 let camShake = 0, skidTimer = 0;
 
 // Put the car back in the inside lane on ITS side of the road, not straddling
-// the divider — the centre of the spline is now the line between the two
+// the divider - the centre of the spline is now the line between the two
 // directions rather than the middle of your half of a ten metre strip.
 function onRoadAt(s) {
   const p = getPose(s);
@@ -3637,7 +3637,7 @@ function respawn() {
   engineOn = true; blown = false; seize = 0;      // the only way to undo a money shift
   omegaE = Math.max(omegaE, IDLE * RPM2RAD);
   if (gear === 0 && !manual) gear = 1;
-  // And clear the road — much further back than ahead, because you are
+  // And clear the road - much further back than ahead, because you are
   // stationary and everything behind you is closing at thirty metres a second.
   // Being dropped back in front of a queue is the one thing guaranteed to make
   // the button that is supposed to rescue you useless.
@@ -3647,7 +3647,7 @@ function respawn() {
   }
 }
 // Start a few hundred metres in. The road only exists from s = 0 forwards, and
-// the chase camera sits seven metres BEHIND the car — so spawning at the very
+// the chase camera sits seven metres BEHIND the car - so spawning at the very
 // start puts the camera outside the built world, looking at a hard edge with
 // nothing underneath it. sEst has to move with it: the probe can only walk 90 m
 // of arc length per frame, so leaving it at zero would spend the first second
@@ -3716,7 +3716,7 @@ let lastMsg = '';
 // ================= minimap =================
 // The route, ahead and behind, rotated so the way you are pointing is up. The
 // road is sampled straight off the spline rather than off the built chunks, so
-// it can show far more of it than is loaded — which is the point, because what
+// it can show far more of it than is loaded - which is the point, because what
 // you want from this is the shape of the next half mile.
 const mapCv = document.getElementById('minimap');
 const mapCtx = mapCv.getContext('2d');
@@ -3737,7 +3737,7 @@ function drawMinimap(dt) {
   g.rotate(-yaw);
   const px = (p) => (p.x - pos.x) * MAP_SCALE, pz = (p) => (p.z - pos.z) * MAP_SCALE;
   // The carriageway as a filled ribbon at its REAL width at every point, rather
-  // than one line at the width under the car — so you can see the road open out
+  // than one line at the width under the car - so you can see the road open out
   // to five lanes half a mile ahead and close down again after it, which is the
   // one thing worth knowing that you cannot get from the windscreen.
   g.beginPath();
@@ -3758,7 +3758,7 @@ function drawMinimap(dt) {
   }
   g.closePath();
   g.fillStyle = 'rgba(226,222,214,.80)'; g.fill();
-  // and the concrete, where there is any — a road with a barrier down it is a
+  // and the concrete, where there is any - a road with a barrier down it is a
   // different proposition and worth being able to see coming
   g.lineCap = 'butt';
   g.strokeStyle = 'rgba(70,64,60,.9)'; g.lineWidth = 1.6;
@@ -3800,7 +3800,7 @@ let camInit = false, fovNow = FOV, showTurn = 0;
 // ================= autopilot =================
 // Three separate jobs, and they are only loosely coupled: hold a lane, pick the
 // lane that is actually moving, and never arrive anywhere faster than it can
-// still stop. The last one is what "never crashes" actually means — almost every
+// still stop. The last one is what "never crashes" actually means - almost every
 // crash is a speed chosen a hundred metres before the thing you hit.
 let autoDrive = false, autoLane = 0, autoHold = 0, autoPass = 0;
 let autoStuck = 0, autoBack = 0, autoBackDir = 1;
@@ -3812,7 +3812,7 @@ const autoDbg = {};   // what it was thinking, for watching it drive
 // and how fast it is going. Metres, not lane indices: a car halfway through a
 // lane change is in nobody's lane by index and squarely in your path in reality.
 // `swept` widens the test to everywhere between where we are now and where we
-// are going, which matters mid-change — a car in the lane we are LEAVING is
+// are going, which matters mid-change - a car in the lane we are LEAVING is
 // still in front of us until we have actually left it.
 function aheadIn(lat, swept) {
   const lo = (swept ? Math.min(dEst, lat) : lat) - 2.7;
@@ -3836,7 +3836,7 @@ function lineFree(lat, v) {
   // Time, not distance. The old test was a fixed 100 m window, which refused
   // half the lane changes this thing wanted to make: a car forty metres back
   // doing exactly your speed is not an obstacle at all, and a car eighty back
-  // doing twenty more is — a window treats them identically. What matters is
+  // doing twenty more is - a window treats them identically. What matters is
   // whether anybody arrives in the space before you have used it.
   const check = (oLatNow, oLatGoing, oS, oSpeed) => {
     if (Math.abs(oLatNow - lat) > 2.9 && Math.abs(oLatGoing - lat) > 2.9) return true;
@@ -3871,8 +3871,8 @@ function autopilot(dt) {
   if (autoStuck > 2.0) {
     autoBack = 1.5; autoStuck = 0;
     // Reverse with the wheel toward whichever side we are stuck on. In reverse
-    // that swings the NOSE the other way — off the obstacle and back down the
-    // road — which is the half of the manoeuvre that actually frees the car;
+    // that swings the NOSE the other way - off the obstacle and back down the
+    // road - which is the half of the manoeuvre that actually frees the car;
     // simply backing up straight leaves it pointed at the same wall.
     autoBackDir = Math.sign(dEst - (autoLane + 0.5) * LANE_W) || 1;
   }
@@ -3927,26 +3927,26 @@ function autopilot(dt) {
 
   // ---- overtaking on a single carriageway ----
   // With one lane each way there is nowhere to pass except the far side of the
-  // line — which is exactly what the solid/dashed rule is for. The line is
+  // line - which is exactly what the solid/dashed rule is for. The line is
   // dashed precisely where the road is straight enough and open enough to see,
   // so it is already the right answer to "may I use the other side here".
   autoPass = Math.max(0, autoPass - dt);
   let passing = autoPass > 0;
-  // Only on an undivided single carriageway — behind a barrier there is a whole
+  // Only on an undivided single carriageway - behind a barrier there is a whole
   // lane to overtake in and no reason to cross anything. It costs collisions
   // and it is worth them: a driver that sits behind a lorry at 120 on an empty
   // straight road is not a good driver, it is a cautious one.
   if (PASS_ONCOMING && nLanes === 1 && !split) {
     const a0 = aheadIn(LANE_W * 0.5, false);
     if (passing) {
-      // abandon it instantly if something appears — better a hard brake in our
+      // abandon it instantly if something appears - better a hard brake in our
       // own lane than a closing speed neither of us can do anything about
       if (oncoming < 150) { autoPass = 0; passing = false; }
       else if (!a0 || a0.gap > 34) autoPass = Math.min(autoPass, 0.7);   // past it, ease back
     } else if (a0 && a0.gap < 75 && a0.spd < openRoad - 4 && v > 12 && centreDashed(sEst)) {
       const closing = Math.max(2.5, openRoad * 0.92 - a0.spd);
       const secs = (a0.gap + 30) / closing;                // how long the pass takes
-      // Room for us AND for whatever is coming to cover the same seconds — and
+      // Room for us AND for whatever is coming to cover the same seconds - and
       // the ceiling on secs is not a taste question. Oncoming cars are recycled
       // in at 200 m ahead, so one can simply appear during a long pass; three
       // seconds is what survives that at a 60 m/s closing speed. Overtakes that
@@ -3970,7 +3970,7 @@ function autopilot(dt) {
         let score = a ? Math.min(openRoad, a.spd + (a.gap - 30) * 0.30) : openRoad;
         score -= Math.abs(l - autoLane) * 0.6;   // changing lane costs a little
         // the inside lane is up against the oncoming carriageway, so it costs
-        // something to sit in — but only while anything is actually coming
+        // something to sit in - but only while anything is actually coming
         score -= l === 0 && !split ? (oncoming < 150 ? 500 : 2.2) : 0;
         if (score > bestScore) { bestScore = score; best = l; }
       }
@@ -4007,7 +4007,7 @@ function autopilot(dt) {
   // and both measured worse: an explicit cross-track term, which fought pure
   // pursuit and put the car off the road entirely, and a curvature feed-forward,
   // which looked principled and doubled the collision count. Pure pursuit is
-  // already a position controller — the point it chases is in the lane — and it
+  // already a position controller - the point it chases is in the lane - and it
   // does not want help.
   autoOut.steer = clamp(bearing * 2.7 - yawRate * 0.28, -1, 1);
 
@@ -4018,8 +4018,8 @@ function autopilot(dt) {
     // Same rule as the corner: the fastest we could be going and still be down to
     // its speed by the time we reach it. 0.72 of what the tyres could give,
     // because the lead car can brake too and a margin exists for the assumption
-    // under it being wrong. Aiming at a time headway instead — which is what this
-    // did first — will hold 45 m/s a hundred metres behind something doing 25 and
+    // under it being wrong. Aiming at a time headway instead - which is what this
+    // did first - will hold 45 m/s a hundred metres behind something doing 25 and
     // then discover it needed 20 m/s of braking in the last second.
     const room = Math.max(0, a.gap - (12 + v * 0.7));
     target = Math.min(target, Math.sqrt(a.spd * a.spd + 2 * brake * 0.72 * room));
@@ -4035,8 +4035,8 @@ function autopilot(dt) {
 
   // Last resort, and deliberately the dumbest thing here. Everything above
   // reasons about lanes and lines; this has no model at all. Anything ahead
-  // within a car's width of our own line — either way up the road, because
-  // during a pass the thing in front is coming towards us — closing fast enough
+  // within a car's width of our own line - either way up the road, because
+  // during a pass the thing in front is coming towards us - closing fast enough
   // to reach us inside a couple of seconds gets the lot.
   let ttc = 1e9;
   for (const t of traffic) {
@@ -4057,7 +4057,7 @@ let tripTime = 0, milestone = 0, toastFor = 0;
 const hhmm = t => (t >= 3600 ? Math.floor(t / 3600) + 'h ' : '') + Math.floor(t / 60) % 60 + 'm';
 
 // Adaptive resolution. Fill rate is the one cost here that scales with a screen
-// we cannot know in advance — a 4K display asks for nine times the pixels of a
+// we cannot know in advance - a 4K display asks for nine times the pixels of a
 // laptop for the same scene. Rather than drop frames on the slow ones, drop the
 // render scale. Falls fast and climbs back slowly, so it settles instead of
 // oscillating around the threshold.
@@ -4077,7 +4077,7 @@ paintPicker();
 renderer.setAnimationLoop(() => {
   // Clamped at BOTH ends. Clock returns exactly 0 for the first frame, and
   // several forces below are written as "whatever it takes to stop, but no more
-  // than the tyres can do" — |v|/dt against a cap. At dt = 0 that is 0/0, and a
+  // than the tyres can do" - |v|/dt against a cap. At dt = 0 that is 0/0, and a
   // single NaN there poisons the position, the arc length and every probe made
   // from it for the rest of the session.
   const dt = clamp(clock.getDelta(), 1e-4, 0.04);
@@ -4099,7 +4099,7 @@ renderer.setAnimationLoop(() => {
   // ACCELERATOR to go backwards is what the gearbox does underneath, but it is
   // not what anybody expects to have to do: S is the one that sends you
   // backwards and W is the one that stops you, exactly as it is going forwards.
-  // Reverse still has to be selected — it is a gear, not a direction.
+  // Reverse still has to be selected - it is a gear, not a direction.
   const fwdKey = (!picking && (keys['w'] || keys['arrowup'])) ? 1 : 0;
   const backKey = (!picking && (keys['s'] || keys['arrowdown'])) ? 1 : 0;
   let gas, brakeIn, steerIn;
@@ -4111,7 +4111,7 @@ renderer.setAnimationLoop(() => {
     brakeIn = picking ? 1 : (gear === -1 ? fwdKey : backKey);
     steerIn = ((keys['d'] || keys['arrowright']) ? 1 : 0) - ((keys['a'] || keys['arrowleft']) ? 1 : 0);
     // The two pedals are not the same thing to a latched cruise control. The
-    // brake cancels it outright, as a real one does — you braked, so you have
+    // brake cancels it outright, as a real one does - you braked, so you have
     // stopped wanting that speed. The throttle only overrides while you hold it,
     // and it settles back to the set speed after, which is how you get past
     // something without having to re-arm afterwards. Reverse and a dead engine
@@ -4139,7 +4139,7 @@ renderer.setAnimationLoop(() => {
                        : clamp(0.18 + smoothstep(0.4, 4.5, Math.abs(vLong)) * 0.9, 0, 1);
   if (shiftCut > 0) clutchTarget = 0;
   shiftCut = Math.max(0, shiftCut - dt);
-  // The pedal goes down far faster than it comes back up — but only in manual,
+  // The pedal goes down far faster than it comes back up - but only in manual,
   // where the rate is a foot easing off. In auto it is a gearbox, and taking a
   // quarter of a second to pick the drive back up after every upshift is a hole
   // in the acceleration you can feel.
@@ -4170,7 +4170,7 @@ renderer.setAnimationLoop(() => {
       // rule waits for, so the box would sit there and the car felt like it
       // never changed down at all.
       // Decided on ROAD SPEED, not on engine revs. Every shift cuts the clutch for
-      // a moment, and a declutched engine falls toward idle — so a box reading
+      // a moment, and a declutched engine falls toward idle - so a box reading
       // its own tachometer sees low revs, changes down, sees low revs again and
       // walks itself into first at a hundred kilometres an hour. What the gear
       // would actually be turning at is the thing that matters.
@@ -4206,13 +4206,13 @@ renderer.setAnimationLoop(() => {
 
   // ---------- engine + clutch ----------
   const gripAcc = grip * 9.81;
-  // only the driven axle carries traction, so first gear can light up the tyres —
+  // only the driven axle carries traction, so first gear can light up the tyres -
   // and a car that drives all four has most of the car's weight helping it, which
   // is the difference between putting the power down and merely making smoke
   const tractionN = gripAcc * MASS * (handbrake ? 0.24 : DRIVE);
   const gr = ratio(gear) * FINAL;
   // Most torque the driven tyres can hold, referred back to the engine side.
-  // Past this they let go — which is both why first gear spins up and why a
+  // Past this they let go - which is both why first gear spins up and why a
   // brutal downshift can't pin the engine rigidly to road speed.
   const tyreCap = gr !== 0 ? tractionN * WHEEL_R / (Math.abs(gr) * EFF) : 1e9;
 
@@ -4231,7 +4231,7 @@ renderer.setAnimationLoop(() => {
       // winds up and the tyre has to absorb the whole spike before it can start
       // sliding, and static grip beats sliding grip anyway. Gated on a big
       // wheels-faster-than-engine mismatch, so it only ever fires on a money
-      // shift — a launch slips the other way and normal engine braking sits
+      // shift - a launch slips the other way and normal engine braking sits
       // within a rad/s or two of locked.
       const shockCap = tyreCap * (slip < -60 ? GRIP_PEAK : 1);
       const held = clamp(t, -shockCap, shockCap);
@@ -4262,7 +4262,7 @@ renderer.setAnimationLoop(() => {
   // Wheelspin is the driven tyres letting go, and two things have to be right
   // about it or everything downstream jumps. It is measured against what they
   // could hold with the handbrake OFF, because the lever locks the rear axle
-  // rather than spinning it — normalising against the reduced capacity made
+  // rather than spinning it - normalising against the reduced capacity made
   // simply touching the handbrake read as instant full wheelspin. And it is
   // low-passed, because `slipped` is a per-frame accumulator that steps from
   // nothing to saturated in one frame when a clutch comes back after a shift.
@@ -4280,10 +4280,10 @@ renderer.setAnimationLoop(() => {
   // brakes work all four tyres, so they get slightly more than the cornering limit
   if (brakeIn) accel -= Math.sign(vLong) * Math.min(Math.abs(vLong) / dt, gripAcc * 1.08 * brakeIn);
   // A locked rear axle still scrubs speed off, but far less once the car is
-  // properly sideways — otherwise every drift dies a second after it starts.
+  // properly sideways - otherwise every drift dies a second after it starts.
   if (handbrake) accel -= Math.sign(vLong) * Math.min(Math.abs(vLong) / dt, 6.5 - 4 * slipAmount);
   // It let go and locked the driven axle for a moment. This is the part that puts
-  // you in the scenery — the bang is only the announcement.
+  // you in the scenery - the bang is only the announcement.
   if (seize > 0) accel -= Math.sign(vLong) * Math.min(Math.abs(vLong) / dt, gripAcc * 0.55);
   seize = Math.max(0, seize - dt);
   if (airborne) accel = 0;
@@ -4302,7 +4302,7 @@ renderer.setAnimationLoop(() => {
   const maxSteer = (0.60 - 0.42 * smoothstep(4, 46, speedAbs)) * (1 + 0.25 * handbrake);
   // Rate limited, not an exponential approach. An exponential moves fastest at
   // the very start, when the error is largest: a 120 ms tap took 55% of full
-  // lock and a 60 ms tap took 33% — a third of a second's worth of steering for
+  // lock and a 60 ms tap took 33% - a third of a second's worth of steering for
   // half the time. A tap you cannot predict from how long you held it is the
   // whole of "one touch turns too much". A constant rate makes the two
   // proportional, and it is also what your arms do to a steering wheel.
@@ -4310,13 +4310,13 @@ renderer.setAnimationLoop(() => {
   // Coming back is four times quicker, and it is deliberately not the same
   // number: let go and the wheel is straight in about five frames. Caster does
   // that in a real car, and a delay nobody asked for reads as the car ignoring
-  // you. It applies to unwinding THROUGH centre too — flicking from left to
-  // right shouldn't wait out the lock you already had on — but only up to
+  // you. It applies to unwinding THROUGH centre too - flicking from left to
+  // right shouldn't wait out the lock you already had on - but only up to
   // centre; from there it winds on at the normal rate rather than snapping to
   // the opposite lock.
   // A rate cap on its own is not enough either: it only bites while the error is
   // large, so SMALL corrections arrive instantly and unfiltered, and the
-  // autopilot — which is a feedback loop tuned against the old lag — started
+  // autopilot - which is a feedback loop tuned against the old lag - started
   // hunting, with half again as many steering reversals. So both. The cap is
   // what a tap runs into; the lag underneath is what everything smaller feels.
   const want = steerIn * maxSteer;
@@ -4342,12 +4342,12 @@ renderer.setAnimationLoop(() => {
   // handful of lock is asking for far less rotation than it looks like, and past
   // a point it is asking for the opposite. That is the whole reason a drift
   // settles at an angle roughly equal to the lock you are holding instead of
-  // winding up into a spin — and it costs one addition. In grip it costs
+  // winding up into a spin - and it costs one addition. In grip it costs
   // nothing, because the tyres never let the body slip more than a degree.
   const slipAngle = Math.atan2(vLat, Math.max(2, speedAbs));
   // The argument is clamped short of a right angle. steerAngle can be 0.75 rad
   // and slipAngle approaches pi/2 when the car is properly sideways, and their
-  // sum then crosses pi/2 — where tan changes SIGN. The car would steer into the
+  // sum then crosses pi/2 - where tan changes SIGN. The car would steer into the
   // slide instead of out of it, which with the rotation pair below is a pump:
   // measured, vLat reached 7.8e301 before everything became NaN.
   const steerEff = clamp(steerAngle + slipAngle, -1.25, 1.25);
@@ -4360,7 +4360,7 @@ renderer.setAnimationLoop(() => {
   yaw += yawRate * dt;
 
   // Lateral velocity: cornering pushes it out, tyre grip pulls it back. Both
-  // terms of the rotation are here — turning trades forward velocity into
+  // terms of the rotation are here - turning trades forward velocity into
   // sideways velocity AND back again. With only the first half the car gains
   // speed out of nowhere every time it rotates, so a slide could never settle;
   // as a matched pair they conserve it, and the tyres are the only thing that
@@ -4404,14 +4404,14 @@ renderer.setAnimationLoop(() => {
   // circle test the boulders use would need one every couple of metres.
   // 1.35, not 0.62: the barrier is 0.8 m wide and the car is about 2 m, so
   // clearing the car's CENTRE by 0.62 m left a third of a metre of bodywork
-  // inside the concrete — which is exactly what clipping into it looks like.
+  // inside the concrete - which is exactly what clipping into it looks like.
   // Signed, so being knocked onto the far side pushes you off that side rather
   // than teleporting you back across.
   // Always back onto YOUR side. Pushing to whichever side you were nearest was
   // symmetric and wrong: cross the barrier through a gap where the divided
   // stretch tapers out, and it would then hold you on the oncoming carriageway.
   // Bounded on BOTH sides. "Anything left of 1.35 m" includes being a very long
-  // way left of it, and the push is (1.35 - dEst) — so one bad frame elsewhere
+  // way left of it, and the push is (1.35 - dEst) - so one bad frame elsewhere
   // became a teleport of the same magnitude and the car was gone for good.
   if (divided(sEst) && dEst < 1.35 && dEst > -7) {
     const bside = 1, want = 1.35;
@@ -4419,7 +4419,7 @@ renderer.setAnimationLoop(() => {
     // Scrub proportionally to how hard you are leaning on it, not by a fixed
     // fraction per frame. A flat multiplier fires again every frame you stay in
     // contact, so holding the wall brought the car to a complete stop with the
-    // throttle wide open — a barrier scrapes, it does not anchor you.
+    // throttle wide open - a barrier scrapes, it does not anchor you.
     const into = Math.max(0, -vLat * bside);
     vLat = bside > 0 ? Math.max(vLat, 0) : Math.min(vLat, 0);
     vLong -= Math.sign(vLong) * Math.min(Math.abs(vLong), into * 0.5 + 1.5 * dt);
@@ -4432,7 +4432,7 @@ renderer.setAnimationLoop(() => {
   // the world with the ground still holding you up, which is not a thing that
   // can be made to look right. So the ground gives up first. Past 420 m the car
   // is dragged back as if it were wading, hard enough that nothing gets to the
-  // edge and gently enough that it is a bog and not a wall — you can turn round
+  // edge and gently enough that it is a bog and not a wall - you can turn round
   // and drive out of it, which is what you were going to do anyway.
   // This is the second half of the same bug as the projection guard in probe():
   // between them, going a long way off the road is now boring rather than
@@ -4471,7 +4471,7 @@ renderer.setAnimationLoop(() => {
       let nx, nz, px, pz;
       if (t.hw !== undefined) {
         // Oriented box. Work in its own frame, find the nearest point on it, and
-        // leave along the line to that point — which for a corner is diagonal
+        // leave along the line to that point - which for a corner is diagonal
         // and for a wall is square to the wall, both of which a circle got wrong.
         const bx = -t.az, bz = t.ax;
         const lx = dx * t.ax + dz * t.az, lz = dx * bx + dz * bz;
@@ -4548,7 +4548,7 @@ renderer.setAnimationLoop(() => {
 
   // weight transfer
   // Body lean, and the numbers are now the real ones. 0.14 rad is eight degrees
-  // of roll — a road car on its stops manages three, a stiff one barely two —
+  // of roll - a road car on its stops manages three, a stiff one barely two -
   // and eight degrees across a 1.6 m track is 11 cm of travel, which is why the
   // car looked like it was cornering on two wheels. Three degrees is a lean.
   suspPitch += (brakeIn * 0.035 - accel * 0.0042 - suspPitch) * (1 - Math.exp(-dt * 7));
@@ -4604,8 +4604,8 @@ renderer.setAnimationLoop(() => {
     const tx = pos.x - camYawX * back, tz = pos.z - camYawZ * back;
     // Smooth the camera's OFFSET from the car, not its position in the world.
     // A first-order lag applied to a target that is itself travelling at 40 m/s
-    // settles a steady v*tau behind where it was asked to sit — six metres at
-    // speed — so the car shrank into the distance exactly when you were going
+    // settles a steady v*tau behind where it was asked to sit - six metres at
+    // speed - so the car shrank into the distance exactly when you were going
     // fast enough to want to look at it. Relative to the car the target is very
     // nearly constant, so smoothing it costs nothing in lag while still damping
     // the swing as the car rotates or crests a rise.
@@ -4632,7 +4632,7 @@ renderer.setAnimationLoop(() => {
   camera.updateProjectionMatrix();
 
   // The dome is centred on the eye so it can never be driven out of, and the sun
-  // rides along because a directional light aims at its target's position — a
+  // rides along because a directional light aims at its target's position - a
   // fixed one at the origin would swing round as we drive away from it.
   skyDome.position.copy(camera.position);
   sun.target.position.copy(pos);
@@ -4644,8 +4644,8 @@ renderer.setAnimationLoop(() => {
   if (audioCtx && engGain) {
     // Three detuned sawtooths through a low-pass is an engine, and that is the
     // one thing an electric car is not. It gets a triangle at a much higher
-    // pitch tied to ROAD SPEED rather than to revs — the whine of a reduction
-    // gear — far quieter, with the filter opened right up so it stays thin.
+    // pitch tied to ROAD SPEED rather than to revs - the whine of a reduction
+    // gear - far quieter, with the filter opened right up so it stays thin.
     const f = IS_EV ? 62 + Math.abs(vLong) * 5.2 : 22 + rpm * 0.0135;
     engOscs.forEach((o, i) => {
       const want = IS_EV ? 'triangle' : 'sawtooth';
@@ -4670,7 +4670,7 @@ renderer.setAnimationLoop(() => {
   setTxt(el.speed, Math.round(Math.abs(vLong) * 3.6));
   // An electric car has a motor speed and no driver has ever cared what it is.
   // What the dial is for is how much of the thing you are using, so it reads
-  // power — and negative power, which is the regen you can feel on the lift.
+  // power - and negative power, which is the regen you can feel on the lift.
   const kW = Tc * omegaE / 1000;
   setTxt(el.rpm, IS_EV ? Math.round(kW / 5) * 5 + ' kW' : Math.round(rpm / 50) * 50 + ' RPM');
   setTxt(el.dist, (odo / 1000).toFixed(1) + ' km');
@@ -4706,8 +4706,8 @@ renderer.setAnimationLoop(() => {
   setCls(el.lampEng, blown ? 'on' : '');
   setCls(el.lampAuto, autoDrive ? 'on' : '');
 
-  // Brake lights. redLamp is the player's cars only — traffic builds its own
-  // materials — so this can be driven straight off the pedal, and it comes up
+  // Brake lights. redLamp is the player's cars only - traffic builds its own
+  // materials - so this can be driven straight off the pedal, and it comes up
   // from a dimmer standing glow when the headlights are on.
   const wantRed = (lightsOn ? 2.2 : 1.2) + brakeIn * 2.8;
   if (redLamp.emissiveIntensity !== wantRed) redLamp.emissiveIntensity = wantRed;
@@ -4719,10 +4719,10 @@ renderer.setAnimationLoop(() => {
   let msg = '';
   if (!engineOn) {
     msg = blown
-      ? 'ENGINE DESTROYED<small>you dropped it into a gear it could not survive &mdash; it will crank all day and never fire again. press P for a fresh car</small>'
+      ? 'ENGINE DESTROYED<small>you dropped it into a gear it could not survive - it will crank all day and never fire again. press P for a fresh car</small>'
       : 'STALLED<small>hold SHIFT, bring the revs up, then ease off the clutch</small>';
   } else if (noRev > 0) {
-    msg = 'NO REVERSE<small>reverse has no synchro &mdash; you have to be almost stopped</small>';
+    msg = 'NO REVERSE<small>reverse has no synchro - you have to be almost stopped</small>';
   } else if (grind > 0) {
     msg = 'GRIND<small>hold SHIFT to declutch before selecting a gear</small>';
   }
