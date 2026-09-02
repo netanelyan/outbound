@@ -4,6 +4,13 @@
 <meta charset="utf-8">
 <title>OUTBOUND</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#2a2330">
+<!-- The whole game is one file, and a favicon should not be the thing that makes
+     it two. Drawn inline instead: the dusk sky, the dark land under it and the
+     road running out to the horizon, which is the entire game in three shapes.
+     Nothing smaller than a couple of pixels at 16 across — the centre dashes are
+     the only detail, and they are what stops it reading as an abstract wedge. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3ClinearGradient id='k' gradientUnits='userSpaceOnUse' x1='0' y1='0' x2='0' y2='13'%3E%3Cstop offset='0' stop-color='%23402957'/%3E%3Cstop offset='.62' stop-color='%23a96b86'/%3E%3Cstop offset='1' stop-color='%23f7c391'/%3E%3C/linearGradient%3E%3Crect width='32' height='13' fill='url(%23k)'/%3E%3Crect y='13' width='32' height='19' fill='%233d3b23'/%3E%3Crect y='19' width='32' height='13' fill='%232f2d1c'/%3E%3Cpath d='M13.9 13h4.2L31 32H1z' fill='%23b3ada2'/%3E%3Cpath d='M15.7 15h.6l.3 2.6h-1.2zM15.1 20.2h1.8l.5 3.8h-2.8zM14 27h4l.8 5h-5.6z' fill='%23fff'/%3E%3C/svg%3E">
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #2a2330; }
   canvas { display: block; }
@@ -1559,7 +1566,11 @@ function buildChunk(ci) {
   const band = vnoise(sAt(0) * 0.00021, 3.1);
   const FARM = farmAt(band);
 
-  if (FARM > 0.12 && !CITY && !FOREST) {
+  // Only where the country is properly farmed. At 0.12 a boundary could appear
+  // on ground that was still seven-eighths moor, so you got drystone walls
+  // ruled across a hillside of gorse and boulders — which is what made them
+  // read as boxes somebody had left lying about rather than as field edges.
+  if (FARM > 0.5 && !CITY && !FOREST) {
     // The boundaries. A patchwork painted on flat ground is wallpaper; what
     // makes farmed country read as farmed is that every field edge stands up —
     // a hedge you cannot see over, or a wall of dry stone where the soil ran
@@ -1567,10 +1578,13 @@ function buildChunk(ci) {
     // blocks, which is exactly where the colour changes, so the geometry and the
     // paint agree without either of them knowing the other exists.
     const hedges = [], walls = [];
-    // 19, 37, 73, 130 and 220 m out. Not the 9 m ring: a road has a verge before
-    // the first field starts, and a wall that close reads as a crash barrier
-    // rather than as the edge of somebody's land.
-    const RINGS = [5, 6, 7, 8, 9];
+    // 19, 37 and 73 m out. Not the 9 m ring — a road has a verge before the
+    // first field starts, and a wall that close reads as a crash barrier. And
+    // not the 130 and 220 m ones either: a hedge is two pixels tall out there,
+    // so all they contributed was five ruled lines stacking up the side of every
+    // hill into what looked like terracing. The patchwork carries the middle
+    // distance on its own.
+    const RINGS = [5, 6, 7];
     const piece = (ax, ay, az, bx, by, bz, thick, tall, into, hit) => {
       const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz);
       if (len < 0.5) return;
@@ -1600,11 +1614,17 @@ function buildChunk(ci) {
       // the amount of relief already says, so it comes from there.
       const stone = hash2(j * 4.7 + side * 3.1, 91.3) > 0.62;
       const into = stone ? walls : hedges;
-      // Chest high for stone, over your head for a hedge, and both of them grow
-      // with distance for the same reason the gorse does: a 1.2 m wall is two
-      // pixels at 200 m and simply stops being there.
-      const tall = (stone ? 0.85 : 1.5 + hash2(j, side * 2 + 5) * 0.8) * (1 + D * 0.004);
-      const step = Math.max(9, D * 0.16);
+      // Chest high for stone, head high for a hedge, and the real heights: the
+      // gorse is scaled up with distance so it stays resolvable, and doing the
+      // same to these was a mistake of a different order. A hedge is a metre and
+      // a half whatever else is true, and one grown to four and a half at 200 m
+      // is not a hedge that reads better, it is a wall across the valley.
+      const tall = stone ? 0.85 + hash2(j, side + 9) * 0.2
+                         : 1.45 + hash2(j, side * 2 + 5) * 0.45;
+      // Short enough that the top follows the ground. A 35 m piece is dead level
+      // over a rise, so its top cuts the hillside as a straight line and the
+      // whole run comes out as a slab.
+      const step = Math.min(13, Math.max(8, D * 0.16));
       let prev = null;
       for (let sPos = sAt(0); sPos <= sAt(CHUNK) + step * 0.5; sPos += step) {
         const s = Math.min(sPos, sAt(CHUNK));
