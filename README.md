@@ -2,7 +2,9 @@
 
 A driving game that is one HTML file.
 
-![A Ferrari F40 coming into a village at dusk, church spire ahead, lit windows either side of the street](screenshot.jpg)
+### [Play it &rarr;](https://netanelyan.github.io/outbound/)
+
+[![A Ferrari F40 coming into a village at dusk, church spire ahead, lit windows either side of the street](screenshot.jpg)](https://netanelyan.github.io/outbound/)
 
 No build step, no bundler, no `node_modules`, no assets directory. Every road
 marking, every cloud, every panel of every car and every note of the engine is
@@ -14,9 +16,13 @@ weather and how much traffic you want, and then you drive.
 
 ## Running it
 
-Open `index.html` in a browser. That is the whole procedure - it works straight
-off the filesystem, because the only import is cross-origin and the CDN allows
-it.
+It is live at **<https://netanelyan.github.io/outbound/>**, which is the whole
+of the deployment: GitHub Pages serving the same `index.html` that is in this
+repository.
+
+To run your own copy, open `index.html` in a browser. That is the whole
+procedure - it works straight off the filesystem, because the only import is
+cross-origin and the CDN allows it.
 
 If you would rather serve it:
 
