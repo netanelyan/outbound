@@ -3702,6 +3702,10 @@ let vLong = 0, vLat = 0;  // body-frame velocity
 let yawRate = 0;
 let vy = 0, airborne = false;
 let sEst = 0, dEst = 0, groundY = 0;
+// Which side of the central barrier the car was last properly clear of.
+// Only read while it is inside the concrete, where the sign of dEst is no
+// use: at a metre either way it is exactly the thing being disputed.
+let barrierSide = 1;
 let steerAngle = 0, wheelSpin = 0, slipAmount = 0;
 let cruiseSet = 0, cruiseI = 0;             // m/s being held, 0 = not holding
 let bodyPitch = 0, bodyRoll = 0, suspPitch = 0, suspRoll = 0;
@@ -3723,6 +3727,7 @@ function onRoadAt(s) {
 function respawn() {
   onRoadAt(sEst);
   vLong = clamp(vLong, -12, 12); vLat = 0; yawRate = 0; vy = 0;   // clamp, not min: a huge NEGATIVE speed survived a min()
+  barrierSide = 1;                                // onRoadAt() puts you back on the right-hand carriageway
   engineOn = true; blown = false; seize = 0;      // the only way to undo a money shift
   omegaE = Math.max(omegaE, IDLE * RPM2RAD);
   if (gear === 0 && !manual) gear = 1;
@@ -4496,21 +4501,43 @@ renderer.setAnimationLoop(() => {
   // inside the concrete - which is exactly what clipping into it looks like.
   // Signed, so being knocked onto the far side pushes you off that side rather
   // than teleporting you back across.
-  // Always back onto YOUR side. Pushing to whichever side you were nearest was
-  // symmetric and wrong: cross the barrier through a gap where the divided
-  // stretch tapers out, and it would then hold you on the oncoming carriageway.
+  // And the side is the one you were last CLEAR of the concrete on, not the one
+  // the road says you belong on. Always shoving the car back to the right was
+  // what made deliberately taking the other carriageway impossible: cross at a
+  // gap where the divided stretch tapers out, and the first metre of barrier
+  // after the gap threw the car the whole width of the central reservation in a
+  // single frame. That is a teleport, not a wall. Remembering the side costs one
+  // number and gets both cases right - you still cannot drive THROUGH the
+  // concrete, and once you are past it the barrier holds you on the carriageway
+  // you actually chose rather than dragging you off it.
+  if (Math.abs(dEst) > 1.35) barrierSide = dEst < 0 ? -1 : 1;
   // Bounded on BOTH sides. "Anything left of 1.35 m" includes being a very long
   // way left of it, and the push is (1.35 - dEst) - so one bad frame elsewhere
   // became a teleport of the same magnitude and the car was gone for good.
-  if (divided(sEst) && dEst < 1.35 && dEst > -7) {
-    const bside = 1, want = 1.35;
-    pos.x += rx * (want - dEst); pos.z += rz * (want - dEst);
+  if (divided(sEst) && Math.abs(dEst) < 1.35) {
+    const bside = barrierSide, want = 1.35 * bside;
+    // Across the ROAD, not across the car. rx/rz are the car's own lateral axis,
+    // which is the same direction only while it is pointing where the road goes.
+    // Spun ninety degrees the push runs ALONG the road and does nothing; spun
+    // further it turns round completely and shoves the car through the concrete,
+    // which is how a car that went in at a metre left of the barrier came out
+    // the far side of it and kept going.
+    const bp = getPose(sEst), bx = Math.cos(bp.heading), bz = Math.sin(bp.heading);
+    pos.x += bx * (want - dEst); pos.z += bz * (want - dEst);
     // Scrub proportionally to how hard you are leaning on it, not by a fixed
     // fraction per frame. A flat multiplier fires again every frame you stay in
     // contact, so holding the wall brought the car to a complete stop with the
     // throttle wide open - a barrier scrapes, it does not anchor you.
-    const into = Math.max(0, -vLat * bside);
-    vLat = bside > 0 ? Math.max(vLat, 0) : Math.min(vLat, 0);
+    // "How hard" is the closing speed measured across the road as well, and the
+    // part of the velocity that gets taken away is that same component - so a
+    // car sliding sideways into the barrier stops moving towards it and keeps
+    // everything it had going the other way.
+    const wx = fx * vLong + rx * vLat, wz = fz * vLong + rz * vLat;
+    const into = Math.max(0, -(wx * bx + wz * bz) * bside);
+    if (into > 0) {
+      const nx = wx + bx * into * bside, nz = wz + bz * into * bside;
+      vLong = nx * fx + nz * fz; vLat = nx * rx + nz * rz;
+    }
     vLong -= Math.sign(vLong) * Math.min(Math.abs(vLong), into * 0.5 + 1.5 * dt);
     camShake = Math.min(1, camShake + into * 0.06);
   }
