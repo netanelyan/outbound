@@ -1439,6 +1439,22 @@ const fieldOf = (s, side, j) => {
   const b = Math.floor(s / FIELD_BLK) + (j > 6 ? 3 : 0);   // far fields are not the near ones
   return hash2(b * 13.7 + side * 5.1 + j * 3.3, j * 7.9 - side * 2.2);
 };
+// Is there a hedge or a wall standing on ring `j` here? One function, read by the
+// boundaries that get BUILT and by the paint that has to agree with them, because
+// the two disagreeing is the whole of the blocks: a field is a flat colour with a
+// knife edge round it, and a knife edge is only a field edge if something is
+// standing on it. Where the boundary took one of its gaps - three blocks in ten -
+// or where a village pushed it out of the way, the paint went on drawing the edge
+// anyway, and an edge with nothing on it reads as a step in the ground.
+// Constant across a whole field block, village test included, so the only places
+// it can change are the block lines - which is exactly where the field colour
+// changes already, so no new seam appears anywhere.
+const boundaryAt = (s, side, j) => {
+  const blk = Math.floor(s / FIELD_BLK);
+  return hash2(blk * 6.1 + j * 2.9, side * 11.7 + 3.4) > 0.30
+      && (OFFS[j] > 90 || builtUp((blk + 0.5) * FIELD_BLK) < 0.25)
+      && farmAt(vnoise((blk + 0.5) * FIELD_BLK * 0.00021, 3.1)) > 0.55;
+};
 
 function buildChunk(ci) {
   const i0 = ci * CHUNK;
@@ -1630,7 +1646,8 @@ function buildChunk(ci) {
         // fine for deciding how many trees to plant, but painted into vertex
         // colours it would put a visible step across the ground at every chunk
         // seam. This is the same function read 61 times instead of once.
-        const farm = farmAt(vnoise(sAt(k) * 0.00021, 3.1));
+        const sk = sAt(k);
+        const farm = farmAt(vnoise(sk * 0.00021, 3.1));
         for (let b = 0; b < bands; b++) {
           // A hard edge belongs where something stands on it, and nowhere else.
           // These two bands - 19 to 37 m and 37 to 73 m - are the ones the
@@ -1641,16 +1658,20 @@ function buildChunk(ci) {
           // it reads as a STEP IN THE GROUND. A hillside of them looks like
           // terracing, or like slabs left lying about, which is exactly what
           // they were reported as. Out there the colour is blended instead.
-          // Also gated on the country being properly farmed, because a
-          // half-strength field edge in a moor-to-farm transition is still a
-          // hard edge, and that is the half of it you actually notice.
-          const walled = farm > 0.55 && OFFS[b] >= 15 && OFFS[b] < 73;
+          // And a hard edge belongs where something is standing on it in THIS
+          // block, which is what boundaryAt answers - including how farmed the
+          // country is, so there is no second farm test here to disagree with it
+          // and stop the edge halfway along a hedge that carries on. How STRONG
+          // the colour is still comes from the row, which is smooth in s and so
+          // cannot draw an edge of its own.
+          const walled = OFFS[b] >= 15 && OFFS[b] < 73
+                         && boundaryAt(sk, side, b) && boundaryAt(sk, side, b + 1);
           if (walled) {
             // Read at the MIDDLE of the band, so both of its columns agree and
             // the field comes out one flat colour with an edge on each side.
             const mx = (sp[(k * cols + b) * 3] + sp[(k * cols + b + 1) * 3]) / 2;
             const mz = (sp[(k * cols + b) * 3 + 2] + sp[(k * cols + b + 1) * 3 + 2]) / 2;
-            crop.copy(CROPS[Math.floor(fieldOf(sAt(k), side, b) * CROPS.length) % CROPS.length]);
+            crop.copy(CROPS[Math.floor(fieldOf(sk, side, b) * CROPS.length) % CROPS.length]);
             // Every field is worked slightly unevenly, and without this the flat
             // paint is more obvious than the patchwork it is supposed to be.
             crop.multiplyScalar(0.86 + vnoise(mx * 0.028, mz * 0.028) * 0.28);
@@ -1717,7 +1738,11 @@ function buildChunk(ci) {
   // on ground that was still seven-eighths moor, so you got drystone walls
   // ruled across a hillside of gorse and boulders - which is what made them
   // read as boxes somebody had left lying about rather than as field edges.
-  if (FARM > 0.5 && !CITY && !FOREST) {
+  // Both ends of the chunk, because the piece-by-piece test below is the one that
+  // decides now: sampling only the start meant a chunk that began on moor and
+  // ended in farmland built no boundaries at all across the half of it that had
+  // become fields - while the paint, read per row, went on drawing their edges.
+  if ((FARM > 0.5 || farmAt(vnoise(sAt(CHUNK) * 0.00021, 3.1)) > 0.5) && !CITY && !FOREST) {
     // The boundaries. A patchwork painted on flat ground is wallpaper; what
     // makes farmed country read as farmed is that every field edge stands up -
     // a hedge you cannot see over, or a wall of dry stone where the soil ran
@@ -1733,15 +1758,29 @@ function buildChunk(ci) {
     // distance on its own.
     const RINGS = [5, 6, 7];
     const piece = (ax, ay, az, bx, by, bz, thick, tall, into, hit) => {
-      const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz);
+      const dx = bx - ax, dy = by - ay, dz = bz - az, len = Math.hypot(dx, dz);
       if (len < 0.5) return;
       // a shade longer than the gap, so nothing opens up at the joints
       // Wobbled a few centimetres per length, so the top is a line somebody
       // built rather than a line somebody extruded.
       const t2 = tall * (0.88 + hash2(Math.round(ax * 0.7), Math.round(az * 0.7)) * 0.24);
-      const g = new THREE.BoxGeometry(len + thick, t2, thick);
+      // PITCHED to the ground it stands on, rather than laid out level. This is
+      // the whole of the blocks: a level box is the right shape only where the
+      // ground is flat, and on a hillside every piece buries its uphill end and
+      // lifts its downhill one, so a run of them reads as a staircase of slabs
+      // and not as a hedge. Making the pieces shorter made the steps smaller and
+      // more numerous, which is not the same as removing them - at ten metres a
+      // piece the step is still the better part of a metre on the slopes this
+      // terrain is full of, against a hedge a metre and a half tall. Tilted
+      // along the run, the top follows the ground exactly, consecutive pieces
+      // meet, and the run is one line however steep the field.
+      const g = new THREE.BoxGeometry(Math.hypot(len, dy) + thick, t2, thick);
+      g.rotateZ(Math.atan2(dy, len));
       g.rotateY(Math.atan2(-dz, dx));
-      g.translate((ax + bx) / 2, (ay + by) / 2 + t2 / 2 - 0.55, (az + bz) / 2);
+      // and it hardly needs sinking now: 0.55 was there to hide the gap a level
+      // box left under its low end, and the cost of it was burying a third of
+      // the hedge everywhere the ground was flat enough not to need it.
+      g.translate((ax + bx) / 2, (ay + by) / 2 + t2 / 2 - 0.28, (az + bz) / 2);
       into.push(g);
       // Only the two boundaries nearest the road are things you can hit, and
       // they are soft: a hedge tears the paint off and slows you right down, it
@@ -1777,9 +1816,7 @@ function buildChunk(ci) {
         const s = Math.min(sPos, sAt(CHUNK));
         // A boundary runs in field-block-long stretches with gates and gaps
         // between them, and it gives way entirely wherever a village does.
-        const blk = Math.floor(s / FIELD_BLK);
-        const on = hash2(blk * 6.1 + j * 2.9, side * 11.7 + 3.4) > 0.30
-                   && (D > 90 || builtUp(s) < 0.25);
+        const on = boundaryAt(s, side, j);
         const g = fanPoint(s, side, edgeAt(s, side) + D);
         const here = on ? { x: g.x, y: g.y, z: g.z } : null;
         if (prev && here) piece(prev.x, prev.y, prev.z, here.x, here.y, here.z,
@@ -1791,7 +1828,8 @@ function buildChunk(ci) {
         const first = Math.ceil(sAt(0) / FIELD_BLK) * FIELD_BLK;
         for (let s = first; s < sAt(CHUNK); s += FIELD_BLK) {
           if (hash2(Math.floor(s / FIELD_BLK) * 3.7 + j, side * 8.3) < 0.42) continue;
-          if (D < 90 && builtUp(s) > 0.25) continue;
+          // and only where the field it closes off is a field on both sides of it
+          if (!boundaryAt(s, side, j) || !boundaryAt(s, side, j + 1)) continue;
           const D2 = OFFS[j + 1], across = Math.max(3, (D2 - D) / Math.ceil((D2 - D) / 14));
           let prv = null;
           for (let d = D; d <= D2 + 0.01; d += across) {
