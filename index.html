@@ -26,6 +26,24 @@
     user-select: none;
   }
   #title { position: absolute; top: 18px; left: 22px; font-size: 19px; font-weight: 600; letter-spacing: 2px; opacity: .8; }
+  /* The only links in the game - the source, and the tip jar under it. They
+     sit beneath the title where a badge would go, quiet enough to read as part
+     of the HUD rather than a call to action - and the HUD swallows clicks, so
+     these are the elements that have to take them back. Both marks are drawn
+     in currentColor so they fade with the text. */
+  #src, #picksrc, #bmc, #pickbmc {
+    position: absolute; display: flex; align-items: center; gap: 8px;
+    color: #fff; text-decoration: none; opacity: .38; pointer-events: auto;
+    font-size: 11px; letter-spacing: 1.1px; line-height: 1.35;
+    transition: opacity .25s;
+  }
+  #src { top: 44px; left: 22px; }
+  #bmc { top: 84px; left: 22px; }
+  #picksrc { left: 22px; bottom: 22px; }
+  #pickbmc { left: 22px; bottom: 62px; }
+  #src svg, #picksrc svg, #bmc svg, #pickbmc svg { width: 19px; height: 19px; fill: currentColor; flex: none; }
+  #src b, #picksrc b, #bmc b, #pickbmc b { display: block; font-weight: 600; font-size: 12.5px; letter-spacing: .6px; }
+  #src:hover, #picksrc:hover, #bmc:hover, #pickbmc:hover { opacity: .8; }
   #dist  { position: absolute; top: 21px; right: 24px; font-size: 14px; opacity: .8; }
   #trip  { position: absolute; top: 42px; right: 24px; font-size: 11px; letter-spacing: 1.5px; opacity: .45; }
   /* Milestones. The point of these is that the road has no end, so the only
@@ -266,6 +284,14 @@
 <div id="grade"></div>
 <div id="hud">
   <div id="title">OUTBOUND</div>
+  <a id="src" href="https://github.com/netanelyan/outbound" target="_blank" rel="noopener" aria-label="Source on GitHub">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+    <span>github.com<b>netanelyan/outbound</b></span>
+  </a>
+  <a id="bmc" href="https://buymeacoffee.com/itsblackz" target="_blank" rel="noopener" aria-label="Buy me a coffee">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.9" y="0" width="1.3" height="3.4" rx=".65"/><rect x="6.35" y="0" width="1.3" height="3.4" rx=".65"/><rect x="8.8" y="0" width="1.3" height="3.4" rx=".65"/><path d="M1.6 5.2h10.8v5.4a4.4 4.4 0 0 1-4.4 4.4H6a4.4 4.4 0 0 1-4.4-4.4V5.2z"/><path d="M12.4 6.2h1a2.4 2.4 0 0 1 0 4.8h-1V9.5h1a.9.9 0 0 0 0-1.8h-1V6.2z"/></svg>
+    <span>buymeacoffee.com<b>itsblackz</b></span>
+  </a>
   <div id="dist">0.0 km</div>
   <div id="trip"></div>
   <div id="toast"></div>
@@ -310,6 +336,14 @@
       reverse: <b>R</b> to select it, then <b>S</b> to back up and <b>W</b> to stop &nbsp;&middot;&nbsp; <b>P</b> fresh car &nbsp; <b>M</b> sound &nbsp; <b>Esc</b> back here
     </div>
   </div>
+  <a id="picksrc" href="https://github.com/netanelyan/outbound" target="_blank" rel="noopener" aria-label="Source on GitHub">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+    <span>github.com<b>netanelyan/outbound</b></span>
+  </a>
+  <a id="pickbmc" href="https://buymeacoffee.com/itsblackz" target="_blank" rel="noopener" aria-label="Buy me a coffee">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.9" y="0" width="1.3" height="3.4" rx=".65"/><rect x="6.35" y="0" width="1.3" height="3.4" rx=".65"/><rect x="8.8" y="0" width="1.3" height="3.4" rx=".65"/><path d="M1.6 5.2h10.8v5.4a4.4 4.4 0 0 1-4.4 4.4H6a4.4 4.4 0 0 1-4.4-4.4V5.2z"/><path d="M12.4 6.2h1a2.4 2.4 0 0 1 0 4.8h-1V9.5h1a.9.9 0 0 0 0-1.8h-1V6.2z"/></svg>
+    <span>buymeacoffee.com<b>itsblackz</b></span>
+  </a>
 </div>
 
 <script type="importmap">
