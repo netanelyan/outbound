@@ -36,7 +36,19 @@
      the only detail, and they are what stops it reading as an abstract wedge. -->
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3ClinearGradient id='k' gradientUnits='userSpaceOnUse' x1='0' y1='0' x2='0' y2='13'%3E%3Cstop offset='0' stop-color='%23402957'/%3E%3Cstop offset='.62' stop-color='%23a96b86'/%3E%3Cstop offset='1' stop-color='%23f7c391'/%3E%3C/linearGradient%3E%3Crect width='32' height='13' fill='url(%23k)'/%3E%3Crect y='13' width='32' height='19' fill='%233d3b23'/%3E%3Crect y='19' width='32' height='13' fill='%232f2d1c'/%3E%3Cpath d='M13.9 13h4.2L31 32H1z' fill='%23b3ada2'/%3E%3Cpath d='M15.7 15h.6l.3 2.6h-1.2zM15.1 20.2h1.8l.5 3.8h-2.8zM14 27h4l.8 5h-5.6z' fill='%23fff'/%3E%3C/svg%3E">
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #2a2330; }
+  /* The overflow lock used to be here, and it came off so that the page has
+     somewhere to put words - a canvas is nothing to read, and a crawler that
+     arrives at this URL should not find an empty document. Nothing can scroll
+     by accident: keydown already eats the arrows and the space bar, and there
+     is no wheel handler anywhere in the file to fight with. */
+  html, body { margin: 0; background: #2a2330; overscroll-behavior-y: none; }
+  /* The renderer's canvas is appended to <body> at runtime, which makes it the
+     last thing in flow - anything written into the markup would sit ABOVE the
+     game rather than below it. Taking it out of flow settles that: the canvas
+     is the viewport and the first screen, exactly as before, and the document
+     underneath is free. #minimap is inside #hud, so the child selector leaves
+     it alone. */
+  body > canvas { position: fixed; top: 0; left: 0; }
   canvas { display: block; }
   /* lens vignette - costs nothing and does most of the work a bloom pass would */
   #grade {
@@ -263,6 +275,44 @@
     #ndurl { margin-top: 15px; padding: 9px 14px; }
     #ndanyway { margin-top: 12px; }
   }
+
+  /* Below the game. A plain block of prose one screen down, for the person who
+     wants to know what they are looking at and for the crawler that finds a
+     canvas and nothing else.
+
+     The gap is a real element rather than a margin on the prose. A 100vh top
+     margin on the first in-flow child collapses out through <body> and moves
+     the body instead of making room inside it; a box with a height cannot do
+     that. And the z-index clears everything fixed - the vignette, the HUD at
+     auto, the picker at 5, the phone notice at 20 - so whichever of them is up
+     when you scroll, the prose covers it rather than sharing a screen with a
+     rev counter. */
+  #aboutgap { height: 100vh; }
+  #about {
+    position: relative; z-index: 30;
+    font-family: "Segoe UI", system-ui, sans-serif; color: #fff;
+    background: linear-gradient(180deg, #1a0f1c 0%, #241528 60%, #1a0f1c 100%);
+    padding: 88px 26px 96px; box-sizing: border-box;
+    font-size: 14.5px; line-height: 1.8;
+  }
+  #aboutin { max-width: 640px; margin: 0 auto; }
+  #about h1 { font-size: 12px; letter-spacing: 9px; font-weight: 600; opacity: .40; margin: 0; }
+  #about h2 {
+    font-size: 10.5px; letter-spacing: 3.4px; font-weight: 600; text-transform: uppercase;
+    opacity: .38; margin: 52px 0 14px;
+  }
+  #about p { margin: 0 0 16px; opacity: .72; }
+  #about .lede { font-size: 19px; line-height: 1.65; opacity: .88; margin: 22px 0 0; font-weight: 300; }
+  #about b { font-weight: 600; opacity: 1; color: #f7c391; }
+  #about a { color: #f7c391; text-decoration: none; border-bottom: 1px solid rgba(247,195,145,.32); }
+  #about a:hover { border-bottom-color: #f7c391; }
+  /* The one place a fixed-width font is right: it is quoting arithmetic. */
+  #about code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 13px; color: #f7c391; }
+  #about .foot { margin-top: 54px; font-size: 11.5px; letter-spacing: 1.6px; opacity: .34; }
+  @media (max-width: 560px) {
+    #about { padding: 56px 20px 64px; font-size: 14px; }
+    #about .lede { font-size: 17px; }
+  }
 </style>
 <!-- Runs while the parser is still in the head, which is the whole point: the
      decision is made before the first paint and, more importantly, before the
@@ -369,6 +419,94 @@
     <span>buymeacoffee.com<b>itsblackz</b></span>
   </a>
 </div>
+
+<!-- One screen of nothing, so that the game is the whole of the first view and
+     this is something you arrive at rather than something you are shown. -->
+<div id="aboutgap" aria-hidden="true"></div>
+<section id="about">
+<div id="aboutin">
+
+  <h1>OUTBOUND</h1>
+  <p class="lede">A driving game that is one HTML file. The road is endless and
+  procedural, there are no laps and no timer, and the manual gearbox is a real
+  clutch you can stall, over-rev and money-shift.</p>
+
+  <h2>What it is</h2>
+  <p>You pick a car, a road, a gearbox, some weather and how much traffic you
+  want, and then you drive. There is nothing to win. The only thing that can
+  tell you how far you have come is how far you have come, which is why the
+  distance is the one number the HUD never lets go of.</p>
+  <p>Eight cars, each with its own body, gear ratios, torque curve, mass and
+  handling. Four roads - moor and farmland, forest, city, autobahn - and four
+  kinds of weather that change the light, the fog, the sky and how much grip
+  there is. Every road marking, every cloud, every panel of every car and every
+  note of the engine is generated at runtime. The only thing the page fetches
+  is three.js, from a CDN.</p>
+  <p>It needs a keyboard: a throttle you hold down, a clutch on Shift and seven
+  gears under your left hand. Phones get a notice instead.</p>
+
+  <h2>The gearbox</h2>
+  <p>The engine is not a lookup table. It is a rotating inertia driven against
+  the torque the clutch feeds back from the wheels, which means the interesting
+  failures are not special cases - they fall out of the simulation.</p>
+  <p><b>The clutch</b> is Shift. Hold it, pick a gear with <code>1</code>-<code>7</code>,
+  ease off. Let it up at the wrong revs and it drags the engine to match the
+  wheels, because that is what a clutch does.</p>
+  <p><b>Stalling</b> is the engine falling below 380 rpm with the clutch out.
+  It restarts on the way back up - over 550 rpm with the throttle open and it
+  bump starts, so a stall on a hill sorts itself out if you are quick.</p>
+  <p><b>Over-revving</b> is visible before it is fatal. The danger band is
+  painted into the tach itself the way a real cluster does it, so the bar is
+  scaled to the burst limit rather than the redline, and running past the red
+  is something you can watch yourself do.</p>
+  <p><b>Money-shifting</b> is fatal. Third instead of fifth at the top of the
+  rev range and the wheels spin the engine 16% past its redline: a rod leaves
+  the block, the engine is gone, and it stays gone until you press
+  <code>P</code> for a fresh car. The spike is caught inside the physics
+  substep, not after it - a money shift lives and dies within a single frame,
+  and read one frame later the revs have already come back down and the engine
+  gets away with it.</p>
+
+  <h2>The road</h2>
+  <p>Everything is procedural and everything is deterministic: the same arc
+  length always produces the same road, the same hills and the same village.
+  The world streams in chunks of 180 m as you drive and is thrown away behind
+  you. Terrain is rings swept along the road out to 755 m either side,
+  flattened near the tarmac and growing into landform further out. The country
+  turns over every few kilometres between moor - heather, gorse, loose stone -
+  and farmland, which is a patchwork of fields with a hedge or a drystone wall
+  on every boundary.</p>
+
+  <h2>Why the road cannot cross itself</h2>
+  <p>The road is defined by its <b>heading as a function of arc length</b>, and
+  curvature is that function differentiated. It used to be the other way round
+  - a curvature function integrated into a heading - and that is a genuinely
+  different road, because the integral of a sum of sines is unbounded. With the
+  old amplitudes the heading wandered through several complete turns. The road
+  looped, and every couple of kilometres it came back and crossed a stretch of
+  itself.</p>
+  <p>That is what put hills on the carriageway. The terrain skirt built out to
+  755 m as the far wall of a valley at one point on the road was, in world
+  space, sitting on the tarmac two kilometres later - thirty metres above it,
+  because the elevation function had moved on. You drove into the side of a
+  mountain that was standing on the road, and nothing about the terrain code
+  was wrong.</p>
+  <p>Defining the heading directly fixes it by construction rather than by
+  tuning. The four amplitudes sum to <code>1.36 rad</code>, and
+  <code>1.36 &lt; &pi;/2</code>, so the cosine of the heading is never less
+  than <code>0.21</code>: every metre of road gains at least 21 cm along the
+  forward axis. The road is therefore a graph over that axis and <b>cannot
+  touch itself</b>, whatever the phases do. Amplitude is spent where it shows -
+  the two fast terms carry most of the bend and cost almost no heading - so the
+  road corners harder than the old one, 257 m at the tightest against 200,
+  while still going somewhere.</p>
+
+  <p class="foot"><a href="#">Back to the road</a> &nbsp;·&nbsp;
+  <a href="https://github.com/netanelyan/outbound">Source on GitHub</a>
+  &nbsp;·&nbsp; MIT</p>
+
+</div>
+</section>
 
 <script type="importmap">
 { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
