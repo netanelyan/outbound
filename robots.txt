@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://netanelyan.github.io/outbound/sitemap.xml
