@@ -4922,7 +4922,27 @@ renderer.setAnimationLoop(() => {
     // past rather than by. A dolly zoom, pointed at the thing it is for.
     const zoom = Math.tan(FOV * Math.PI / 360) / Math.tan(fovNow * Math.PI / 360);
     const back = (camMode === 0 ? 6.24 : 10.40) * zoom;
-    const up = (camMode === 0 ? 2.47 : 4.33) * zoom;
+    // The chase eye sat at 2.47, a little under two roof heights, and from there
+    // you look ALONG the tarmac rather than onto it: the road ahead collapses
+    // into a band sitting on the roof and a corner does not open until you are
+    // already in it. Raised to 3.08, which is about a quarter more.
+    //
+    // Raising the eye alone is not enough, and the reason is worth writing down
+    // because the obvious fix is backwards. The camera does not have a pitch of
+    // its own - it is aimed by lookAt, so its pitch is whatever the line from
+    // eye to look point happens to be. Lift the eye and hold the look point and
+    // that line tilts DOWN: the horizon climbs the frame, which is the part that
+    // was wanted, but the car slides toward the bottom edge with it, and at 2.47
+    // it was already only two thirds of the way down. Lifting the look point to
+    // compensate makes it worse, not better - that tilts the line back UP and
+    // pushes the car down again. It has to come DOWN.
+    //
+    // 3.08 up against 0.80 at the look point puts the car 13.1 degrees below
+    // centre, where it used to be 12.5, so it holds its place in the frame to
+    // within half a degree. The horizon goes from 9.1 degrees above centre to
+    // 13.2. All of the extra height is spent on road ahead and none of it on
+    // the boot lid, which is the whole point of the change.
+    const up = (camMode === 0 ? 3.08 : 4.33) * zoom;
     // Trail behind the direction of travel, GTA style: in a slide the car is
     // yawed away from where it is actually going, and following the velocity
     // keeps the road you are sliding towards in the frame.
@@ -4952,7 +4972,7 @@ renderer.setAnimationLoop(() => {
     if (!camInit) { camOff.copy(camTgt); camInit = true; }
     camOff.lerp(camTgt, 1 - Math.exp(-dt * 6));
     camera.position.copy(pos).add(camOff);
-    camLook.set(pos.x + fx * 3.47 * zoom, pos.y + 0.91 * zoom, pos.z + fz * 3.47 * zoom);
+    camLook.set(pos.x + fx * 3.47 * zoom, pos.y + 0.80 * zoom, pos.z + fz * 3.47 * zoom);
   }
   if (camShake > 0.01 && !picking) {
     camera.position.x += (Math.random() - 0.5) * camShake * 0.5;
@@ -4966,8 +4986,13 @@ renderer.setAnimationLoop(() => {
   // nothing is arriving - and a perfectly still frame at 180 km/h is exactly the
   // thing that reads as 90. Two sines that do not share a period, so it never
   // settles into a rhythm you can see, and small enough that you would not point
-  // at it: two centimetres at the top, nothing at all below a walking pace.
-  const buzz = smoothstep(11, 52, speedAbs) * 0.021;
+  // at it. Two centimetres was over that line. At 6.6 Hz an amplitude you can
+  // name stops reading as the road arriving and starts reading as the camera
+  // being shaken, which is the one thing this must never do - the cue has to be
+  // felt and not seen. Twelve millimetres at the top, nothing below a walking
+  // pace. Note this is NOT the shake from hitting something: that is camShake,
+  // it is impulsive, it decays, and it is not gated on speed at all.
+  const buzz = smoothstep(11, 52, speedAbs) * 0.0122;
   if (buzz > 0) {
     camera.position.y += Math.sin(tripTime * 41.3) * buzz;
     camera.position.x += Math.sin(tripTime * 29.7) * buzz * 0.6;
