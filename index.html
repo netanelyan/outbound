@@ -67,16 +67,19 @@
      game rather than below it. Taking it out of flow settles that: the canvas
      is the viewport and the first screen, exactly as before, and the document
      underneath is free. #minimap is inside #hud, so the child selector leaves
-     it alone. */
+     it alone. But out of flow is also positioned, and the canvas is then the
+     LAST positioned child of <body> - so anything fixed that was counting on
+     z-index: auto to paint over it has to say so now. Hence the 1 and the 2
+     below: the vignette, then the HUD, then the picker at 5 above both. */
   body > canvas { position: fixed; top: 0; left: 0; }
   canvas { display: block; }
   /* lens vignette - costs nothing and does most of the work a bloom pass would */
   #grade {
-    position: fixed; inset: 0; pointer-events: none;
+    position: fixed; inset: 0; z-index: 1; pointer-events: none;
     background: radial-gradient(ellipse 78% 68% at 50% 46%, rgba(0,0,0,0) 40%, rgba(26,10,24,.46) 100%);
   }
   #hud {
-    position: fixed; inset: 0; pointer-events: none;
+    position: fixed; inset: 0; z-index: 2; pointer-events: none;
     font-family: "Segoe UI", system-ui, sans-serif; color: #fff;
     text-shadow: 0 1px 5px rgba(0,0,0,.5);
     user-select: none;
@@ -303,8 +306,8 @@
      The gap is a real element rather than a margin on the prose. A 100vh top
      margin on the first in-flow child collapses out through <body> and moves
      the body instead of making room inside it; a box with a height cannot do
-     that. And the z-index clears everything fixed - the vignette, the HUD at
-     auto, the picker at 5, the phone notice at 20 - so whichever of them is up
+     that. And the z-index clears everything fixed - the vignette at 1, the HUD
+     at 2, the picker at 5, the phone notice at 20 - so whichever of them is up
      when you scroll, the prose covers it rather than sharing a screen with a
      rev counter. */
   #aboutgap { height: 100vh; }
